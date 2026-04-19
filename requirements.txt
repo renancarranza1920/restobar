@@ -1,7 +1,0 @@
-Flask
-Flask-Login
-Flask-SQLAlchemy
-Flask-Migrate
-PyMySQL
-python-dotenv
-reportlab
