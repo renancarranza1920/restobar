@@ -10,6 +10,7 @@
     const divisionCards = root.querySelector("[data-order-division-cards]");
     const chargeStatus = root.querySelector("[data-order-charge-status]");
     const deliveredCount = root.querySelector("[data-order-delivered-count]");
+    const confirmModal = document.querySelector("[data-confirm-modal]");
 
     let polling = null;
 
@@ -21,6 +22,13 @@
     }
 
     async function refreshOrderState() {
+        if (confirmModal && !confirmModal.hidden) {
+            return;
+        }
+        if (document.body.dataset.formSubmitting === "true") {
+            return;
+        }
+
         try {
             const response = await fetch(refreshUrl, {
                 headers: { Accept: "application/json" },

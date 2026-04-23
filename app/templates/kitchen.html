@@ -2,7 +2,7 @@
 
 {% block content %}
 <div
-    class="filament-dashboard p-4 md:p-6"
+    class="filament-dashboard p-4 md:p-6 kitchen-screen"
     data-kitchen-live
     data-api-url="{{ url_for('api.api_cocina_pending') }}"
     data-action-template="{{ prepare_url_template }}"
@@ -13,10 +13,10 @@
         <div>
             <p class="text-xs font-bold text-primary uppercase tracking-wide mb-1">Cocina en vivo</p>
             <h1 class="text-2xl font-bold text-gray-800">
-                <i class="fa-solid fa-fire-burner mr-2 text-muted"></i> Cola de Preparación
+                <i class="fa-solid fa-fire-burner mr-2 text-muted"></i> Cola de Preparacion
             </h1>
             <p class="text-sm text-muted mt-1">
-                Esta pantalla se actualiza automáticamente y muestra los items pendientes en tiempo real.
+                Tickets de cocina claros, sin imagenes y con prioridad visual en producto, cantidad y notas.
             </p>
         </div>
 
@@ -51,9 +51,9 @@
                 </div>
                 <h3 class="stat-label text-muted">Modo</h3>
             </div>
-            <div class="stat-value mt-3">Automático</div>
+            <div class="stat-value mt-3">Automatico</div>
             <p class="stat-desc text-primary mt-1 font-medium text-xs">
-                Actualización en tiempo real
+                Actualizacion en tiempo real
             </p>
         </article>
 
@@ -75,7 +75,7 @@
                 <div class="stat-icon bg-gray-light text-muted">
                     <i class="fa-solid fa-arrows-rotate"></i>
                 </div>
-                <h3 class="stat-label text-muted">Última sincronización</h3>
+                <h3 class="stat-label text-muted">Ultima sincronizacion</h3>
             </div>
             <div class="stat-value mt-3 text-lg" data-last-update>Sincronizando...</div>
             <p class="stat-desc text-muted mt-1 font-medium text-xs">
@@ -86,15 +86,12 @@
 
     <section class="panel kitchen-alert-banner mb-6" data-kitchen-banner hidden></section>
 
-    <article class="panel">
+    <article class="panel kitchen-board">
         <div class="panel-header border-b bg-gray-50">
             <div>
                 <h2 class="panel-title font-bold">
-                    <i class="fa-solid fa-list-check mr-2 text-muted"></i> Items pendientes
+                    <i class="fa-solid fa-list-check mr-2 text-muted"></i> Tickets pendientes
                 </h2>
-                <p class="text-sm text-muted mt-1">
-                    Visualiza los platos en espera y márcalos como listos al terminar.
-                </p>
             </div>
             <span class="badge bg-white shadow-sm border border-gray-200 text-muted" data-kitchen-status>
                 {{ pending_items|length }} en cola
@@ -105,48 +102,52 @@
             <div class="kitchen-queue" data-kitchen-queue>
                 {% if pending_items %}
                     {% for item in pending_items %}
-                        <article class="kitchen-card" data-item-id="{{ item.id }}">
-                            <div class="kitchen-card-media">
-                                {% if item.producto and item.producto.imagen_url %}
-                                    <img src="{{ item.producto.imagen_url }}" alt="{{ item.producto.nombre }}" loading="lazy">
-                                {% else %}
-                                    <div class="product-placeholder product-placeholder-large">
-                                        {{ item.producto.nombre[:1] if item.producto else '?' }}
+                        <article class="kitchen-ticket" data-item-id="{{ item.id }}">
+                            <div class="kitchen-ticket-head">
+                                <div class="kitchen-ticket-ident">
+                                    <span class="kitchen-ticket-qty">x{{ item.cantidad }}</span>
+                                    <div class="kitchen-ticket-copy">
+                                        <strong class="kitchen-ticket-title">{{ item.producto.nombre if item.producto else '-' }}</strong>
+                                        <div class="kitchen-ticket-tags">
+                                            <span class="kitchen-ticket-tag">Orden #{{ item.orden.id if item.orden else '-' }}</span>
+                                            <span class="kitchen-ticket-tag">{{ item.orden.mesa.etiqueta if item.orden and item.orden.mesa else '-' }}</span>
+                                            <span class="kitchen-ticket-tag">{{ item.producto.categoria.nombre if item.producto and item.producto.categoria else 'General' }}</span>
+                                        </div>
                                     </div>
-                                {% endif %}
-                            </div>
-
-                            <div class="kitchen-card-body p-4">
-                                <div class="kitchen-card-top">
-                                    <div>
-                                        <strong class="text-sm">{{ item.producto.nombre if item.producto else '-' }}</strong>
-                                        <span class="text-xs text-muted">
-                                            Orden #{{ item.orden.id if item.orden else '-' }} •
-                                            {{ item.orden.mesa.etiqueta if item.orden and item.orden.mesa else '-' }}
-                                        </span>
-                                    </div>
-                                    <span class="badge badge-pendiente">Pendiente</span>
                                 </div>
 
-                                <div class="kitchen-card-meta">
-                                    <span>Cantidad: {{ item.cantidad }}</span>
-                                    <span>Espera: {{ item.created_at|time_ago }}</span>
+                                <div class="kitchen-ticket-status">
+                                    <span class="status-pill status-pendiente">Pendiente</span>
+                                    <span class="kitchen-ticket-wait">{{ item.created_at|time_ago }}</span>
+                                </div>
+                            </div>
+
+                            <div class="kitchen-ticket-grid">
+                                <div class="kitchen-ticket-block">
+                                    <span class="kitchen-ticket-label">Mesa</span>
+                                    <strong>{{ item.orden.mesa.etiqueta if item.orden and item.orden.mesa else '-' }}</strong>
                                 </div>
 
                                 {% if item.orden and item.orden.nombre_cliente %}
-                                    <p class="inline-note">Cliente: {{ item.orden.nombre_cliente }}</p>
+                                    <div class="kitchen-ticket-block">
+                                        <span class="kitchen-ticket-label">Cliente</span>
+                                        <strong>{{ item.orden.nombre_cliente }}</strong>
+                                    </div>
                                 {% endif %}
-
-                                {% if item.notas %}
-                                    <p class="inline-note">Notas: {{ item.notas }}</p>
-                                {% endif %}
-
-                                <form method="post" action="{{ url_for('web.preparar_item', item_id=item.id) }}" data-confirm-title="Marcar item listo" data-confirm-message="El producto {{ item.producto.nombre if item.producto else 'seleccionado' }} pasará de pendiente a listo.">
-                                    <button class="button button-primary button-full" type="submit">
-                                        <i class="fa-solid fa-check mr-2"></i> Marcar listo
-                                    </button>
-                                </form>
                             </div>
+
+                            {% if item.notas %}
+                                <div class="kitchen-ticket-notes">
+                                    <span class="kitchen-ticket-label">Notas</span>
+                                    <p>{{ item.notas }}</p>
+                                </div>
+                            {% endif %}
+
+                            <form method="post" action="{{ url_for('web.preparar_item', item_id=item.id) }}" data-confirm-title="Marcar item listo" data-confirm-message="El producto {{ item.producto.nombre if item.producto else 'seleccionado' }} pasara de pendiente a listo.">
+                                <button class="button button-primary button-full kitchen-ticket-action" type="submit">
+                                    <i class="fa-solid fa-check mr-2"></i> Listo para entrega
+                                </button>
+                            </form>
                         </article>
                     {% endfor %}
                 {% else %}

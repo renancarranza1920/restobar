@@ -1,3 +1,4 @@
+import hmac
 from datetime import datetime
 from decimal import Decimal
 
@@ -51,8 +52,20 @@ class Usuario(UserMixin, db.Model):
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
 
+    @property
+    def uses_legacy_plaintext_password(self):
+        stored_password = self.password_hash or ""
+        return bool(stored_password) and not stored_password.startswith(
+            ("pbkdf2:", "scrypt:")
+        )
+
     def check_password(self, password):
-        return check_password_hash(self.password_hash, password)
+        stored_password = self.password_hash or ""
+        if not stored_password:
+            return False
+        if self.uses_legacy_plaintext_password:
+            return hmac.compare_digest(stored_password, password)
+        return check_password_hash(stored_password, password)
 
     def to_dict(self):
         return {
@@ -162,8 +175,12 @@ class Producto(db.Model):
         return bool(self.categoria and self.categoria.envia_a_cocina)
 
     @property
+    def controla_stock(self):
+        return self.maneja_stock and not self.requiere_cocina
+
+    @property
     def stock_bajo(self):
-        return self.maneja_stock and self.stock_actual <= 5
+        return self.controla_stock and self.stock_actual <= 5
 
     def to_dict(self):
         return {
@@ -177,7 +194,8 @@ class Producto(db.Model):
             "unidad_compra": self.unidad_compra,
             "unidades_por_paquete": self.unidades_por_paquete,
             "stock_actual": self.stock_actual,
-            "maneja_stock": self.maneja_stock,
+            "maneja_stock": self.controla_stock,
+            "controla_stock": self.controla_stock,
             "disponible": self.disponible,
             "requiere_cocina": self.requiere_cocina,
             "stock_bajo": self.stock_bajo,

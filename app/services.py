@@ -1,7 +1,8 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from functools import wraps
 from urllib.parse import urljoin, urlparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import current_app, flash, redirect, request, url_for
 from flask_login import current_user, login_required
@@ -36,6 +37,7 @@ FEATURES_BY_ROLE = {
         "dashboard",
         "mesas",
         "zonas",
+        "categorias",
         "ordenes",
         "productos",
         "caja",
@@ -67,6 +69,16 @@ NAV_ITEMS = [
         "label": "Zonas",
         "endpoint": "web.zonas",
         "active_endpoints": {"web.zonas", "web.nueva_zona", "web.editar_zona"},
+    },
+    {
+        "feature": "categorias",
+        "label": "Categorias",
+        "endpoint": "web.categorias",
+        "active_endpoints": {
+            "web.categorias",
+            "web.nueva_categoria",
+            "web.editar_categoria",
+        },
     },
     {
         "feature": "ordenes",
@@ -177,6 +189,30 @@ def default_theme():
     return "light"
 
 
+def app_timezone():
+    timezone_name = current_app.config.get("APP_TIMEZONE", "America/El_Salvador")
+    try:
+        return ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        return datetime.now().astimezone().tzinfo or timezone.utc
+
+
+def localize_datetime(value):
+    if not value:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(app_timezone())
+
+
+def local_now():
+    return datetime.now(app_timezone())
+
+
+def local_today():
+    return local_now().date()
+
+
 def role_label(role):
     labels = {
         "dueño": "Administrador",
@@ -191,7 +227,8 @@ def time_ago_label(value):
     if not value:
         return "--"
 
-    delta = datetime.utcnow() - value
+    localized_value = localize_datetime(value)
+    delta = local_now() - localized_value
     total_seconds = max(int(delta.total_seconds()), 0)
 
     if total_seconds < 60:
@@ -306,6 +343,46 @@ def bootstrap_admin_account():
         db.session.commit()
 
 
+def bootstrap_takeout_table():
+    inspector = inspect(db.engine)
+    if not inspector.has_table("zonas") or not inspector.has_table("mesas"):
+        return
+
+    zone_name = current_app.config["TAKEOUT_ZONE_NAME"]
+    table_id = current_app.config["TAKEOUT_TABLE_ID"]
+    table_number = current_app.config["TAKEOUT_TABLE_NUMBER"]
+    table_alias = current_app.config["TAKEOUT_TABLE_ALIAS"]
+
+    zone = Zona.query.filter_by(nombre=zone_name).first()
+    changed = False
+
+    if zone is None:
+        zone = Zona(nombre=zone_name)
+        db.session.add(zone)
+        db.session.flush()
+        changed = True
+
+    takeout_table = db.session.get(Mesa, table_id)
+    if takeout_table is None:
+        takeout_table = Mesa(
+            id=table_id,
+            numero=table_number,
+            nombre_alias=table_alias,
+            zona_id=zone.id,
+            estado="disponible",
+            limpieza_estado="limpia",
+        )
+        db.session.add(takeout_table)
+        changed = True
+
+    if changed:
+        db.session.commit()
+
+
+def is_takeout_table(mesa):
+    return bool(mesa) and mesa.id == current_app.config["TAKEOUT_TABLE_ID"]
+
+
 def get_active_cash_session():
     return (
         SesionCaja.query.options(
@@ -328,7 +405,11 @@ def get_user(user_id):
 
 
 def get_zonas():
-    return Zona.query.order_by(Zona.nombre.asc()).all()
+    return (
+        Zona.query.filter(Zona.nombre != current_app.config["TAKEOUT_ZONE_NAME"])
+        .order_by(Zona.nombre.asc())
+        .all()
+    )
 
 
 def get_zona(zona_id):
@@ -339,6 +420,7 @@ def get_mesas_disponibles():
     return (
         Mesa.query.options(joinedload(Mesa.zona))
         .filter_by(estado="disponible", limpieza_estado="limpia")
+        .filter(Mesa.id != current_app.config["TAKEOUT_TABLE_ID"])
         .order_by(Mesa.numero.asc())
         .all()
     )
@@ -362,6 +444,17 @@ def get_productos(disponibles_only=False, search=None):
     return query.all()
 
 
+def get_inventory_products():
+    return (
+        Producto.query.options(joinedload(Producto.categoria))
+        .join(Producto.categoria)
+        .filter(Producto.maneja_stock.is_(True))
+        .filter(Categoria.envia_a_cocina.is_(False))
+        .order_by(Producto.nombre.asc())
+        .all()
+    )
+
+
 def get_producto(producto_id):
     return (
         Producto.query.options(joinedload(Producto.categoria))
@@ -373,7 +466,9 @@ def get_producto(producto_id):
 def get_low_stock_products(limit=6):
     return (
         Producto.query.options(joinedload(Producto.categoria))
+        .join(Producto.categoria)
         .filter(Producto.maneja_stock.is_(True))
+        .filter(Categoria.envia_a_cocina.is_(False))
         .filter(Producto.stock_actual <= LOW_STOCK_THRESHOLD)
         .order_by(Producto.stock_actual.asc(), Producto.nombre.asc())
         .limit(limit)
@@ -425,12 +520,14 @@ def get_order(order_id):
 def grouped_tables():
     zonas = (
         Zona.query.options(selectinload(Zona.mesas).joinedload(Mesa.zona))
+        .filter(Zona.nombre != current_app.config["TAKEOUT_ZONE_NAME"])
         .order_by(Zona.nombre.asc())
         .all()
     )
     active_orders = (
         Orden.query.options(joinedload(Orden.mesa), selectinload(Orden.pagos))
         .filter_by(estado="abierta")
+        .filter(Orden.mesa_id != current_app.config["TAKEOUT_TABLE_ID"])
         .all()
     )
     return zonas, {order.mesa_id: order for order in active_orders}
@@ -600,7 +697,7 @@ def get_report_snapshot(start_date, end_date):
 
 
 def get_dashboard_metrics():
-    today = date.today()
+    today = local_today()
     today_report = get_report_snapshot(today, today)
     mesas = Mesa.query.all()
     pendientes_cocina = (
@@ -780,6 +877,10 @@ def calculate_order_total(order):
 def sync_order(order):
     order.total = calculate_order_total(order)
 
+    if is_takeout_table(order.mesa):
+        order.mesa.estado = "disponible"
+        return
+
     if order.estado in {"pagada", "cancelada"}:
         order.mesa.estado = "disponible"
         if order.items:
@@ -817,8 +918,9 @@ def settle_order(order):
 
     if order.total > ZERO and order.total_pagado >= order.total and order.todos_entregados:
         order.estado = "pagada"
-        order.mesa.estado = "disponible"
-        order.mesa.limpieza_estado = "sucia"
+        if not is_takeout_table(order.mesa):
+            order.mesa.estado = "disponible"
+            order.mesa.limpieza_estado = "sucia"
 
         for item in order.items:
             if item.estado == "cancelado" or item.pagado:
@@ -826,7 +928,7 @@ def settle_order(order):
 
             item.pagado = True
 
-            if item.producto and item.producto.maneja_stock:
+            if item.producto and item.producto.controla_stock:
                 item.producto.stock_actual -= item.cantidad
                 movimiento = MovimientoInventario(
                     producto_id=item.producto_id,
@@ -840,7 +942,7 @@ def settle_order(order):
                 db.session.add(movimiento)
     elif order.estado != "cancelada":
         order.estado = "abierta"
-        if order.items_activos:
+        if order.items_activos and not is_takeout_table(order.mesa):
             order.mesa.estado = "ocupada"
 
 

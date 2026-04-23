@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="filament-dashboard p-4 md:p-6">
+    <header class="page-header">
+        <div>
+            <p class="text-xs font-bold text-primary uppercase tracking-wide mb-1">Catalogo</p>
+            <h1 class="text-2xl font-bold text-gray-800">
+                <i class="fa-solid fa-tags mr-2 text-muted"></i> Categorias
+            </h1>
+            <p class="text-sm text-muted mt-1">Organiza productos y define si cada grupo pasa por cocina o sale directo al salon.</p>
+        </div>
+
+        <div class="page-actions">
+            <a class="button button-ghost hover-lift shadow-sm border-gray-200" href="{{ url_for('web.productos') }}">
+                <i class="fa-solid fa-box-open mr-2"></i> Productos
+            </a>
+            <a class="button button-primary hover-lift shadow-sm" href="{{ url_for('web.nueva_categoria') }}">
+                <i class="fa-solid fa-plus mr-2"></i> Nueva categoria
+            </a>
+        </div>
+    </header>
+
+    <article class="panel">
+        <div class="panel-header border-b bg-gray-50">
+            <div>
+                <h2 class="panel-title font-bold">
+                    <i class="fa-solid fa-layer-group mr-2 text-muted"></i> Categorias registradas
+                </h2>
+                <p class="text-sm text-muted mt-1">Cada categoria define flujo operativo y mantiene el catalogo ordenado.</p>
+            </div>
+        </div>
+
+        <div class="panel-body">
+            {% if categories %}
+                <div class="entity-list">
+                    {% for category in categories %}
+                        <article class="entity-card">
+                            <div class="entity-main">
+                                <div class="entity-topline">
+                                    <div>
+                                        <strong class="text-sm">{{ category.nombre }}</strong>
+                                        <span class="text-xs text-muted">
+                                            {{ category.productos|length }} producto{{ '' if category.productos|length == 1 else 's' }}
+                                        </span>
+                                    </div>
+
+                                    <span class="badge {{ 'badge-pagada' if category.envia_a_cocina else 'bg-primary-light text-primary' }}">
+                                        {{ 'Cocina' if category.envia_a_cocina else 'Salon' }}
+                                    </span>
+                                </div>
+
+                                <p class="text-sm text-muted mt-2">
+                                    {{ 'Los productos de esta categoria apareceran en cocina.' if category.envia_a_cocina else 'Los productos de esta categoria pueden atenderse sin pasar por cocina.' }}
+                                </p>
+                            </div>
+
+                            <div class="entity-actions">
+                                <a class="button button-secondary button-small" href="{{ url_for('web.editar_categoria', category_id=category.id) }}">
+                                    <i class="fa-solid fa-pen mr-1"></i> Editar
+                                </a>
+                                <form method="post" action="{{ url_for('web.eliminar_categoria', category_id=category.id) }}">
+                                    <button class="button button-ghost button-small text-danger border-danger" type="submit" data-confirm-title="Eliminar categoria" data-confirm-message="Se intentara eliminar {{ category.nombre }}. Solo se puede si no tiene productos asociados.">
+                                        <i class="fa-solid fa-trash"></i>
+                                    </button>
+                                </form>
+                            </div>
+                        </article>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="empty-state p-8 text-center">
+                    <div class="empty-icon bg-gray-light text-muted mx-auto mb-3">
+                        <i class="fa-solid fa-tags text-2xl"></i>
+                    </div>
+                    <p class="text-sm font-medium text-muted">Todavia no hay categorias registradas.</p>
+                </div>
+            {% endif %}
+        </div>
+    </article>
+</div>
+{% endblock %}

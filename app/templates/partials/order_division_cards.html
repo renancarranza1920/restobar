@@ -5,7 +5,7 @@
                 <div class="p-3 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
                     <div>
                         <strong class="block text-sm text-gray-800">{{ division.nombre_visible }}</strong>
-                        <span class="text-xs text-muted">{{ division.items|length }} ítems</span>
+                        <span class="text-xs text-muted">{{ division.items|length }} items</span>
                     </div>
                     <span class="badge {{ 'bg-success-light text-success border-success' if division.pagada else 'bg-warning-light text-warning border-warning' }} border">
                         {{ 'Pagada' if division.pagada else 'Pendiente' }}
@@ -23,7 +23,7 @@
                     <strong class="text-lg text-primary">{{ division.total|money }}</strong>
 
                     {% if user_can(current_user, 'caja') and not division.pagada %}
-                        <form class="flex gap-2" method="post" action="{{ url_for('web.pagar_division', division_id=division.id) }}" data-confirm-title="Cobrar división" data-confirm-message="Se registrará el cobro de {{ division.nombre_visible }} por {{ division.total|money }}.">
+                        <form class="flex gap-2" method="post" action="{{ url_for('web.pagar_division', division_id=division.id) }}">
                             <select name="method" class="text-xs p-1 rounded border-gray-300 w-20">
                                 <option value="efectivo">Efectivo</option>
                                 <option value="tarjeta">Tarjeta</option>

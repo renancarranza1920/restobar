@@ -1,6 +1,6 @@
 {% if order.divisiones %}
     {% if not division_locked and user_can(current_user, 'caja') %}
-        <form class="form-stack" method="post" action="{{ url_for('web.pagar_orden', order_id=order.id) }}" data-confirm-title="Unificar y cobrar" data-confirm-message="Se eliminará el reparto actual y se cobrará la orden completa por {{ order.saldo_pendiente|money }}.">
+        <form class="form-stack" method="post" action="{{ url_for('web.pagar_orden', order_id=order.id) }}">
             <input type="hidden" name="clear_split" value="1">
 
             <div class="grid grid-cols-2 gap-3 mb-4">
@@ -9,7 +9,7 @@
                     <input id="amount" name="amount" type="number" step="0.01" min="0.01" value="{{ order.saldo_pendiente }}" class="w-full rounded border-gray-300 p-2 text-lg font-bold text-primary" required>
                 </div>
                 <div>
-                    <label for="method" class="block text-xs font-bold text-gray-600 mb-1">Método</label>
+                    <label for="method" class="block text-xs font-bold text-gray-600 mb-1">Metodo</label>
                     <select id="method" name="method" class="w-full rounded border-gray-300 p-2 text-sm h-[42px]">
                         <option value="efectivo">Efectivo</option>
                         <option value="tarjeta">Tarjeta</option>
@@ -23,7 +23,7 @@
         </form>
         <div class="inline-alert inline-alert-info inline-alert-compact mt-3">
             <i class="fa-solid fa-circle-info"></i>
-            <span>{{ charge_message or 'Esto borrará el reparto y cobrará el total de la mesa.' }}</span>
+            <span>{{ charge_message or 'Esto borrara el reparto y cobrara el total de la mesa.' }}</span>
         </div>
     {% else %}
         <div class="inline-alert inline-alert-info">
@@ -32,14 +32,14 @@
         </div>
     {% endif %}
 {% elif user_can(current_user, 'caja') %}
-    <form class="form-stack" method="post" action="{{ url_for('web.pagar_orden', order_id=order.id) }}" data-confirm-title="Registrar pago" data-confirm-message="Se registrará un pago para la orden #{{ order.id }} por el monto indicado.">
+    <form class="form-stack" method="post" action="{{ url_for('web.pagar_orden', order_id=order.id) }}">
         <div class="grid grid-cols-2 gap-3 mb-5">
             <div>
                 <label for="amount" class="block text-xs font-bold text-gray-600 mb-1">Monto a cobrar</label>
                 <input id="amount" name="amount" type="number" step="0.01" min="0.01" value="{{ order.saldo_pendiente }}" class="w-full rounded border-gray-300 p-2 text-lg font-bold text-primary shadow-inner" required>
             </div>
             <div>
-                <label for="method" class="block text-xs font-bold text-gray-600 mb-1">Método</label>
+                <label for="method" class="block text-xs font-bold text-gray-600 mb-1">Metodo</label>
                 <select id="method" name="method" class="w-full rounded border-gray-300 p-2 text-sm h-[44px] shadow-sm">
                     <option value="efectivo">Efectivo</option>
                     <option value="tarjeta">Tarjeta</option>
@@ -53,11 +53,11 @@
     </form>
     <div class="inline-alert inline-alert-info inline-alert-compact mt-3">
         <i class="fa-solid fa-circle-info"></i>
-        <span>{{ charge_message or 'Todo está listo para cobrar.' }}</span>
+        <span>{{ charge_message or 'Todo esta listo para cobrar.' }}</span>
     </div>
 {% else %}
     <div class="inline-alert inline-alert-info">
         <i class="fa-solid fa-circle-info"></i>
-        <span>Solo caja o administración pueden cobrar esta orden.</span>
+        <span>Solo caja o administracion pueden cobrar esta orden.</span>
     </div>
 {% endif %}

@@ -48,7 +48,7 @@
                                         <div>
                                             <strong class="text-lg font-bold text-gray-800">Orden #{{ order.id }}</strong>
                                             <div class="text-xs font-medium mt-1">{{ order.mesa.etiqueta if order.mesa else 'Para Llevar' }}</div>
-                                            <div class="text-xs text-muted">{{ order.created_at|datetime_short }}</div>
+                                            <div class="text-xs text-muted" data-local-datetime="{{ order.created_at|datetime_iso }}">{{ order.created_at|datetime_short }}</div>
                                         </div>
                                         <span class="badge badge-{{ order.estado|lower }} shadow-sm">{{ order.estado }}</span>
                                     </div>
@@ -98,8 +98,24 @@
                 </div>
                 <div class="panel-body p-6">
                     {% if cash_session %}
-                        <form class="form-stack" method="post" action="{{ url_for('web.crear_orden') }}">
+                        <form class="form-stack" method="post" action="{{ url_for('web.crear_orden') }}" id="new-order-form">
                             <div class="mb-4">
+                                <span class="block text-sm font-bold text-gray-800 mb-2">Tipo de servicio</span>
+                                <div class="grid grid-cols-2 gap-2" data-order-service-toggle>
+                                    <label class="button button-primary text-center cursor-pointer" data-service-option>
+                                        <input type="radio" name="service_type" value="local" checked data-service-radio style="display: none;">
+                                        <i class="fa-solid fa-utensils mr-2"></i> Comer en Local
+                                    </label>
+                                    <label class="button button-ghost text-center cursor-pointer border-gray-200" data-service-option>
+                                        <input type="radio" name="service_type" value="takeout" data-service-radio style="display: none;">
+                                        <i class="fa-solid fa-bag-shopping mr-2"></i> Para Llevar
+                                    </label>
+                                </div>
+                            </div>
+
+                            <input type="hidden" name="mesa_id_llevar" id="mesa_id_llevar" value="">
+
+                            <div class="mb-4" id="mesa_id_wrap">
                                 <label for="mesa_id" class="block text-sm font-bold text-gray-800 mb-2">Mesa disponible</label>
                                 <select id="mesa_id" name="mesa_id" class="w-full rounded-md shadow-sm border-gray-200 p-2" required>
                                     {% for mesa in available_tables %}
@@ -113,12 +129,12 @@
                                 <input id="nombre_cliente" name="nombre_cliente" class="w-full rounded-md shadow-sm border-gray-200 p-2" placeholder="Opcional">
                             </div>
 
-                            <button class="button button-primary button-full hover-lift shadow-sm" type="submit" {% if not available_tables %}disabled{% endif %}>
+                            <button class="button button-primary button-full hover-lift shadow-sm" type="submit">
                                 Crear orden
                             </button>
                         </form>
                         {% if not available_tables %}
-                            <p class="text-xs text-danger mt-3 font-medium text-center"><i class="fa-solid fa-circle-exclamation"></i> No hay mesas disponibles ahora.</p>
+                            <p class="text-xs text-danger mt-3 font-medium text-center"><i class="fa-solid fa-circle-exclamation"></i> No hay mesas disponibles ahora para comer en local. Aun puedes crear pedidos para llevar.</p>
                         {% endif %}
                     {% else %}
                         <div class="text-center">
@@ -148,4 +164,60 @@
         </div>
     </section>
 </div>
+{% endblock %}
+
+{% block scripts %}
+    {{ super() }}
+    <script>
+        (function () {
+            const form = document.getElementById("new-order-form");
+            if (!form) {
+                return;
+            }
+
+            const serviceRadios = form.querySelectorAll("[data-service-radio]");
+            const serviceOptions = form.querySelectorAll("[data-service-option]");
+            const mesaWrap = document.getElementById("mesa_id_wrap");
+            const mesaSelect = document.getElementById("mesa_id");
+            const takeoutMesaInput = document.getElementById("mesa_id_llevar");
+            const customerInput = document.getElementById("nombre_cliente");
+            const takeoutTableId = "999";
+
+            function syncOrderMode() {
+                const takeoutSelected = form.querySelector("[data-service-radio][value='takeout']")?.checked;
+
+                if (mesaWrap) {
+                    mesaWrap.hidden = !!takeoutSelected;
+                }
+
+                if (mesaSelect) {
+                    mesaSelect.required = !takeoutSelected;
+                    mesaSelect.disabled = !!takeoutSelected;
+                }
+
+                if (customerInput) {
+                    customerInput.required = !!takeoutSelected;
+                    customerInput.placeholder = takeoutSelected ? "Obligatorio para pedidos para llevar" : "Opcional";
+                }
+
+                if (takeoutMesaInput) {
+                    takeoutMesaInput.value = takeoutSelected ? takeoutTableId : "";
+                }
+
+                serviceOptions.forEach((option) => {
+                    const radio = option.querySelector("[data-service-radio]");
+                    const active = !!radio?.checked;
+                    option.classList.toggle("button-primary", active);
+                    option.classList.toggle("button-ghost", !active);
+                    option.classList.toggle("border-gray-200", !active);
+                });
+            }
+
+            serviceRadios.forEach((radio) => {
+                radio.addEventListener("change", syncOrderMode);
+            });
+
+            syncOrderMode();
+        })();
+    </script>
 {% endblock %}

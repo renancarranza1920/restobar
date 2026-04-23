@@ -167,7 +167,7 @@
                                 <li class="list-item hover-row">
                                     <div>
                                         <div class="text-sm font-bold capitalize">{{ payment.metodo }}</div>
-                                        <div class="text-xs text-muted">Orden #{{ payment.orden_id }} • {{ payment.created_at|datetime_short }}</div>
+                                        <div class="text-xs text-muted">Orden #{{ payment.orden_id }} • <span data-local-datetime="{{ payment.created_at|datetime_iso }}">{{ payment.created_at|datetime_short }}</span></div>
                                     </div>
                                     <div class="text-sm font-bold text-success bg-success-light px-2 py-1 rounded-md">+{{ payment.monto|money }}</div>
                                 </li>

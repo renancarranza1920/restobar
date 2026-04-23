@@ -172,7 +172,7 @@
                                                     </span>
                                                 </td>
                                                 <td class="text-sm font-medium">{{ movement.concepto }}</td>
-                                                <td class="text-xs text-muted">{{ movement.created_at|datetime_short }}</td>
+                                                <td class="text-xs text-muted" data-local-datetime="{{ movement.created_at|datetime_iso }}">{{ movement.created_at|datetime_short }}</td>
                                                 <td class="text-right font-bold {{ 'text-success' if movement.tipo == 'ingreso' else 'text-danger' }}">
                                                     {{ movement.monto|money }}
                                                 </td>
@@ -210,7 +210,7 @@
                             <li class="list-item">
                                 <div>
                                     <div class="text-sm font-bold">Apertura</div>
-                                    <div class="text-xs text-muted">{{ session_open.fecha_apertura|datetime_short }}</div>
+                                    <div class="text-xs text-muted" data-local-datetime="{{ session_open.fecha_apertura|datetime_iso }}">{{ session_open.fecha_apertura|datetime_short }}</div>
                                 </div>
                                 <div class="text-sm font-bold">{{ session_open.monto_apertura|money }}</div>
                             </li>

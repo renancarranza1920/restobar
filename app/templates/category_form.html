@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="filament-dashboard p-4 md:p-6 flex justify-center">
+    <div class="w-full max-w-2xl">
+        <header class="page-header">
+            <div>
+                <p class="text-xs font-bold text-primary uppercase tracking-wide mb-1">Catalogo</p>
+                <h1 class="text-2xl font-bold text-gray-800">{{ 'Editar categoria' if category else 'Nueva categoria' }}</h1>
+                <p class="text-sm text-muted mt-1">Agrupa productos y define si deben reflejarse en cocina.</p>
+            </div>
+            <div class="page-actions">
+                <a class="button button-ghost hover-lift bg-white shadow-sm border-gray-200" href="{{ url_for('web.categorias') }}">
+                    <i class="fa-solid fa-arrow-left mr-2"></i> Volver
+                </a>
+            </div>
+        </header>
+
+        <article class="panel shadow-md">
+            <div class="panel-header border-b bg-gray-50">
+                <h2 class="panel-title font-bold"><i class="fa-solid fa-pen-ruler mr-2 text-muted"></i> Datos de la categoria</h2>
+            </div>
+
+            <div class="panel-body p-6">
+                <form class="form-stack" method="post" action="{{ url_for('web.actualizar_categoria', category_id=category.id) if category else url_for('web.crear_categoria') }}">
+                    <div class="mb-5">
+                        <label for="nombre" class="block text-sm font-bold text-gray-800 mb-2">Nombre de la categoria <span class="text-danger">*</span></label>
+                        <input id="nombre" name="nombre" value="{{ category.nombre if category else '' }}" class="w-full rounded-md shadow-sm" maxlength="50" required placeholder="Ej. Platillos, Bebidas, Postres">
+                    </div>
+
+                    <label class="checkbox-inline mb-5">
+                        <input type="checkbox" name="envia_a_cocina" {% if category and category.envia_a_cocina %}checked{% endif %}>
+                        <span>Enviar productos de esta categoria a cocina</span>
+                    </label>
+
+                    <p class="text-xs text-muted -mt-2 mb-5">
+                        Si no se marca, la categoria se atiende directo en salon o caja.
+                    </p>
+
+                    <div class="form-footer">
+                        {% if category %}
+                            <button class="button button-ghost text-danger border-danger" type="submit" form="delete-category-form" data-confirm-title="Eliminar categoria" data-confirm-message="Se intentara eliminar {{ category.nombre }}. Solo se puede si no tiene productos asociados.">
+                                <i class="fa-solid fa-trash mr-2"></i> Eliminar
+                            </button>
+                        {% else %}
+                            <span></span>
+                        {% endif %}
+
+                        <div class="form-footer-actions">
+                            <a href="{{ url_for('web.categorias') }}" class="button button-ghost">Cancelar</a>
+                            <button class="button button-primary shadow-sm hover-lift" type="submit">
+                                <i class="fa-solid fa-save mr-2"></i> {{ 'Guardar cambios' if category else 'Crear categoria' }}
+                            </button>
+                        </div>
+                    </div>
+                </form>
+
+                {% if category %}
+                    <form id="delete-category-form" method="post" action="{{ url_for('web.eliminar_categoria', category_id=category.id) }}"></form>
+                {% endif %}
+            </div>
+        </article>
+    </div>
+</div>
+{% endblock %}

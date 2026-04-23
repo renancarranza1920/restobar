@@ -1226,6 +1226,192 @@ body.theme-dark .module-bar {
     color: #94a3b8;
     cursor: pointer;
 }
+
+.kitchen-screen .kitchen-board {
+    background:
+        linear-gradient(180deg, color-mix(in srgb, var(--surface) 90%, #fff 10%), var(--surface)),
+        repeating-linear-gradient(
+            90deg,
+            transparent 0,
+            transparent 31px,
+            color-mix(in srgb, var(--line) 75%, transparent 25%) 31px,
+            color-mix(in srgb, var(--line) 75%, transparent 25%) 32px
+        );
+}
+
+.kitchen-screen .kitchen-queue {
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 1.15rem;
+}
+
+.kitchen-ticket {
+    display: grid;
+    gap: 1rem;
+    padding: 1.15rem;
+    border: 1px solid color-mix(in srgb, var(--line) 78%, #fff 22%);
+    border-radius: 24px;
+    background:
+        linear-gradient(180deg, color-mix(in srgb, var(--surface-strong) 92%, #fff 8%), var(--surface)),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.02), transparent);
+    box-shadow: 0 16px 36px rgba(18, 26, 35, 0.08);
+    position: relative;
+    overflow: hidden;
+}
+
+.kitchen-ticket::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 6px;
+    background: linear-gradient(180deg, #d28d39, #c85639);
+}
+
+.kitchen-ticket-head,
+.kitchen-ticket-ident,
+.kitchen-ticket-status {
+    display: flex;
+    gap: 0.85rem;
+}
+
+.kitchen-ticket-head {
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.kitchen-ticket-ident {
+    min-width: 0;
+    align-items: flex-start;
+}
+
+.kitchen-ticket-copy {
+    display: grid;
+    gap: 0.55rem;
+    min-width: 0;
+}
+
+.kitchen-ticket-qty {
+    display: grid;
+    place-items: center;
+    min-width: 68px;
+    min-height: 68px;
+    padding: 0.5rem;
+    border-radius: 20px;
+    background: linear-gradient(135deg, #18334a, #2b5e88);
+    color: #f3fbff;
+    font-family: var(--font-heading);
+    font-size: 1.5rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.kitchen-ticket-title {
+    display: block;
+    font-family: var(--font-heading);
+    font-size: clamp(1.15rem, 2vw, 1.45rem);
+    line-height: 1.05;
+    color: var(--text);
+    letter-spacing: -0.03em;
+}
+
+.kitchen-ticket-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+}
+
+.kitchen-ticket-tag,
+.kitchen-ticket-wait {
+    display: inline-flex;
+    align-items: center;
+    min-height: 30px;
+    padding: 0.32rem 0.7rem;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: color-mix(in srgb, var(--surface-muted) 82%, #fff 18%);
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.kitchen-ticket-status {
+    flex-direction: column;
+    align-items: flex-end;
+}
+
+.kitchen-ticket-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.8rem;
+}
+
+.kitchen-ticket-block,
+.kitchen-ticket-notes {
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: color-mix(in srgb, var(--surface-muted) 82%, #fff 18%);
+    padding: 0.85rem 0.95rem;
+}
+
+.kitchen-ticket-block strong,
+.kitchen-ticket-notes p {
+    color: var(--text);
+    margin: 0;
+}
+
+.kitchen-ticket-notes {
+    background:
+        linear-gradient(180deg, rgba(210, 141, 57, 0.12), rgba(200, 86, 57, 0.08)),
+        color-mix(in srgb, var(--surface-muted) 84%, #fff 16%);
+    border-color: rgba(210, 141, 57, 0.22);
+}
+
+.kitchen-ticket-notes p {
+    margin-top: 0.4rem;
+    font-size: 1rem;
+    line-height: 1.45;
+}
+
+.kitchen-ticket-label {
+    display: block;
+    margin-bottom: 0.35rem;
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.kitchen-ticket-action {
+    min-height: 48px;
+    font-size: 1rem;
+    font-weight: 700;
+}
+
+@media (max-width: 900px) {
+    .kitchen-screen .kitchen-queue {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 640px) {
+    .kitchen-ticket-head,
+    .kitchen-ticket-ident,
+    .kitchen-ticket-status {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .kitchen-ticket-status {
+        align-items: flex-start;
+    }
+
+    .kitchen-ticket-grid {
+        grid-template-columns: 1fr;
+    }
+}
 /* Importar la nueva fuente Inter desde Google Fonts */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
@@ -2144,6 +2330,78 @@ body.modal-open {
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(241, 245, 249, 0.95));
 }
 
+.split-launch-card {
+    display: grid;
+    gap: 1rem;
+    padding: 1.15rem;
+    border: 1px solid var(--line);
+    border-radius: 22px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.98));
+}
+
+.split-launch-head,
+.split-table-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.split-launch-copy {
+    max-width: 680px;
+}
+
+.split-launch-title,
+.split-table-title {
+    display: block;
+    font-size: 1rem;
+    font-weight: 800;
+    color: var(--text);
+}
+
+.split-launch-points,
+.split-steps,
+.split-person-grid {
+    display: grid;
+    gap: 0.85rem;
+}
+
+.split-launch-points,
+.split-steps {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.split-person-grid {
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
+.split-launch-point,
+.split-step,
+.split-person-card {
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.86);
+}
+
+.split-launch-point strong,
+.split-step strong {
+    display: block;
+    margin-bottom: 0.35rem;
+    color: var(--text);
+}
+
+.split-launch-point span,
+.split-step span {
+    font-size: 0.84rem;
+    color: var(--muted);
+}
+
+.split-person-card input {
+    width: 100%;
+}
+
 .split-config-top {
     display: flex;
     justify-content: space-between;
@@ -2154,6 +2412,10 @@ body.modal-open {
 .split-help {
     flex: 1;
     min-height: 44px;
+}
+
+.split-table-toolbar {
+    margin-bottom: 0.8rem;
 }
 
 .split-table-wrap {
@@ -2306,6 +2568,14 @@ body.theme-dark .split-config-card {
     border-color: var(--filament-border) !important;
 }
 
+body.theme-dark .split-launch-card,
+body.theme-dark .split-launch-point,
+body.theme-dark .split-step,
+body.theme-dark .split-person-card {
+    background: rgba(17, 24, 39, 0.92);
+    border-color: var(--filament-border) !important;
+}
+
 body.theme-dark .login-card,
 body.theme-dark .form-box,
 body.theme-dark .login-tabs {
@@ -2385,14 +2655,18 @@ body.theme-dark .tab-btn.active {
     .order-item-row,
     .order-item-main,
     .action-stack,
-    .split-config-top {
+    .split-config-top,
+    .split-launch-head,
+    .split-table-toolbar {
         width: 100%;
     }
 
     .order-item-row,
     .order-item-main,
     .form-footer,
-    .split-config-top {
+    .split-config-top,
+    .split-launch-head,
+    .split-table-toolbar {
         flex-direction: column;
         align-items: stretch;
     }

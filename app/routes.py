@@ -61,6 +61,7 @@ from .services import (
     get_categorias,
     get_dashboard_metrics,
     get_dashboard_snapshot,
+    get_inventory_products,
     get_low_stock_products,
     get_mesas_disponibles,
     get_order,
@@ -215,6 +216,13 @@ def extract_product_payload(existing=None):
 
     category = db.session.get(Categoria, category_id)
     errors = []
+
+    if category and category.envia_a_cocina:
+        cost_price = 0
+        purchase_unit = "unidad"
+        units_per_package = 1
+        manages_stock = False
+        current_stock = 0
 
     if upload_error:
         errors.append(upload_error)
@@ -581,6 +589,10 @@ def login_submit():
             next_url=request.form.get("next", ""),
         ), 401
 
+    if user.uses_legacy_plaintext_password:
+        user.set_password(password)
+        db.session.commit()
+
     login_user(user, remember=remember if not reauth else False, force=reauth, fresh=True)
     session["theme"] = session.get("theme", default_theme())
 
@@ -718,6 +730,115 @@ def eliminar_zona(zone_id):
     db.session.commit()
     flash(f"La zona {zone_name} fue eliminada.", "success")
     return redirect(url_for("web.zonas"))
+
+
+@web_bp.get("/categorias")
+@feature_required("categorias")
+def categorias():
+    return render_template(
+        "categories.html",
+        page_title="Categorias",
+        categories=get_categorias(),
+    )
+
+
+@web_bp.get("/categorias/nueva")
+@feature_required("categorias")
+def nueva_categoria():
+    return render_template(
+        "category_form.html",
+        page_title="Nueva categoria",
+        category=None,
+    )
+
+
+@web_bp.get("/categorias/<int:category_id>/editar")
+@feature_required("categorias")
+def editar_categoria(category_id):
+    category = db.session.get(Categoria, category_id)
+    if category is None:
+        flash("La categoria no existe.", "error")
+        return redirect(url_for("web.categorias"))
+    return render_template(
+        "category_form.html",
+        page_title=f"Editar {category.nombre}",
+        category=category,
+    )
+
+
+@web_bp.post("/categorias")
+@feature_required("categorias")
+def crear_categoria():
+    nombre = (request.form.get("nombre") or "").strip()
+    envia_a_cocina = bool_from_form(request.form.get("envia_a_cocina"))
+
+    if not nombre:
+        flash("La categoria necesita un nombre.", "error")
+        return redirect(url_for("web.nueva_categoria"))
+
+    existing = Categoria.query.filter(db.func.lower(Categoria.nombre) == nombre.lower()).first()
+    if existing:
+        flash("Ya existe una categoria con ese nombre.", "error")
+        return redirect(url_for("web.nueva_categoria"))
+
+    category = Categoria(nombre=nombre, envia_a_cocina=envia_a_cocina)
+    db.session.add(category)
+    db.session.commit()
+    flash(f"Se creo la categoria {category.nombre}.", "success")
+    return redirect(url_for("web.categorias"))
+
+
+@web_bp.post("/categorias/<int:category_id>")
+@feature_required("categorias")
+def actualizar_categoria(category_id):
+    category = db.session.get(Categoria, category_id)
+    if category is None:
+        flash("La categoria no existe.", "error")
+        return redirect(url_for("web.categorias"))
+
+    nombre = (request.form.get("nombre") or "").strip()
+    envia_a_cocina = bool_from_form(request.form.get("envia_a_cocina"))
+
+    if not nombre:
+        flash("La categoria necesita un nombre.", "error")
+        return redirect(url_for("web.editar_categoria", category_id=category.id))
+
+    existing = (
+        Categoria.query.filter(
+            db.func.lower(Categoria.nombre) == nombre.lower(),
+            Categoria.id != category.id,
+        ).first()
+    )
+    if existing:
+        flash("Ya existe otra categoria con ese nombre.", "error")
+        return redirect(url_for("web.editar_categoria", category_id=category.id))
+
+    category.nombre = nombre
+    category.envia_a_cocina = envia_a_cocina
+    db.session.commit()
+    flash(f"Se actualizo la categoria {category.nombre}.", "success")
+    return redirect(url_for("web.categorias"))
+
+
+@web_bp.post("/categorias/<int:category_id>/eliminar")
+@feature_required("categorias")
+def eliminar_categoria(category_id):
+    category = db.session.get(Categoria, category_id)
+    if category is None:
+        flash("La categoria no existe.", "error")
+        return redirect(url_for("web.categorias"))
+    if category.productos:
+        flash(
+            "No puedes borrar una categoria que todavia tiene productos asociados.",
+            "warning",
+        )
+        return redirect(url_for("web.categorias"))
+
+    category_name = category.nombre
+    db.session.delete(category)
+    db.session.commit()
+    flash(f"La categoria {category_name} fue eliminada.", "success")
+    return redirect(url_for("web.categorias"))
 
 
 @web_bp.get("/usuarios")
@@ -1044,7 +1165,10 @@ def ordenes():
 @roles_required("dueño", "cajero", "mesero")
 def crear_orden():
     mesa_id = parse_int(request.form.get("mesa_id"))
+    if mesa_id <= 0:
+        mesa_id = parse_int(request.form.get("mesa_id_llevar"))
     nombre_cliente = (request.form.get("nombre_cliente") or "").strip()
+    is_takeout = mesa_id == current_app.config["TAKEOUT_TABLE_ID"]
 
     cash_session = get_active_cash_session()
     if cash_session is None:
@@ -1055,11 +1179,14 @@ def crear_orden():
     if mesa is None:
         flash("La mesa seleccionada no existe.", "error")
         return redirect(request.referrer or url_for("web.ordenes"))
-    if mesa.limpieza_estado == "sucia":
+    if is_takeout and not nombre_cliente:
+        flash("Para llevar requiere el nombre del cliente.", "error")
+        return redirect(request.referrer or url_for("web.ordenes"))
+    if not is_takeout and mesa.limpieza_estado == "sucia":
         flash("No puedes abrir una orden en una mesa marcada como sucia. Márcala como limpia primero.", "warning")
         return redirect(request.referrer or url_for("web.ordenes"))
 
-    existing_order = get_active_order_for_mesa(mesa.id)
+    existing_order = None if is_takeout else get_active_order_for_mesa(mesa.id)
     if existing_order:
         flash("Esa mesa ya tiene una orden abierta.", "info")
         return redirect(url_for("web.detalle_orden", order_id=existing_order.id))
@@ -1070,7 +1197,8 @@ def crear_orden():
         usuario_id=current_user.id,
         nombre_cliente=nombre_cliente or None,
     )
-    mesa.estado = "ocupada"
+    if not is_takeout:
+        mesa.estado = "ocupada"
     db.session.add(order)
     db.session.commit()
 
@@ -1087,6 +1215,7 @@ def detalle_orden(order_id):
         return redirect(url_for("web.ordenes"))
 
     requested_people = parse_int(request.args.get("personas"), 0)
+    split_mode = bool(order.divisiones) or bool_from_form(request.args.get("split"))
     division_count = len(order.divisiones)
     people_count = division_count or requested_people or 2
     people_count = max(2, min(10, people_count))
@@ -1098,6 +1227,7 @@ def detalle_orden(order_id):
         page_title=f"Orden #{order.id}",
         order=order,
         products=get_productos(disponibles_only=True),
+        split_mode=split_mode,
         split_people_count=people_count,
         split_matrix=build_split_matrix(order, people_count),
         split_labels={
@@ -1287,13 +1417,27 @@ def dividir_orden(order_id):
     labels, assignments, errors = validate_split_assignment(order, people_count, request.form)
     if errors:
         flash_form_errors(errors)
-        return redirect(url_for("web.detalle_orden", order_id=order.id, personas=people_count))
+        return redirect(
+            url_for(
+                "web.detalle_orden",
+                order_id=order.id,
+                personas=people_count,
+                split=1,
+            )
+        )
 
     save_split_configuration(order, people_count, labels, assignments)
     db.session.commit()
 
     flash("La cuenta quedo dividida por persona.", "success")
-    return redirect(url_for("web.detalle_orden", order_id=order.id, personas=people_count))
+    return redirect(
+        url_for(
+            "web.detalle_orden",
+            order_id=order.id,
+            personas=people_count,
+            split=1,
+        )
+    )
 
 
 @web_bp.post("/ordenes/<int:order_id>/dividir/quitar")
@@ -1783,7 +1927,7 @@ def inventario():
     return render_template(
         "inventory.html",
         page_title="Inventario",
-        products=get_productos(),
+        products=get_inventory_products(),
         movements=recent_inventory_movements(),
         low_stock_products=get_low_stock_products(limit=8),
     )
@@ -1795,7 +1939,7 @@ def nuevo_movimiento_inventario():
     return render_template(
         "inventory_form.html",
         page_title="Nuevo movimiento de inventario",
-        products=get_productos(),
+        products=get_inventory_products(),
     )
 
 
@@ -1812,6 +1956,12 @@ def registrar_movimiento_inventario():
     product = db.session.get(Producto, product_id)
     if product is None:
         flash("El producto seleccionado no existe.", "error")
+        return redirect(url_for("web.nuevo_movimiento_inventario"))
+    if not product.controla_stock:
+        flash(
+            "Ese producto no maneja inventario directo. Los productos de cocina se controlan por insumos.",
+            "warning",
+        )
         return redirect(url_for("web.nuevo_movimiento_inventario"))
     if movement_type not in {"compra", "venta", "ajuste"}:
         flash("El tipo de movimiento no es valido.", "error")

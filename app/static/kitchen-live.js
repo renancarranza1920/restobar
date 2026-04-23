@@ -144,31 +144,48 @@
     }
 
     function renderCard(item) {
-        const imageMarkup = item.image_url
-            ? `<img src="${escapeHtml(item.image_url)}" alt="${escapeHtml(item.product)}" loading="lazy">`
-            : `<div class="product-placeholder product-placeholder-large">${escapeHtml((item.product || "?").slice(0, 1))}</div>`;
-
         return `
-            <article class="kitchen-card" data-item-id="${item.id}">
-                <div class="kitchen-card-media">${imageMarkup}</div>
-                <div class="kitchen-card-body">
-                    <div class="kitchen-card-top">
-                        <div>
-                            <strong>${escapeHtml(item.product)}</strong>
-                            <span>Orden #${item.order_id} | ${escapeHtml(item.table)}</span>
+            <article class="kitchen-ticket" data-item-id="${item.id}">
+                <div class="kitchen-ticket-head">
+                    <div class="kitchen-ticket-ident">
+                        <span class="kitchen-ticket-qty">x${item.quantity}</span>
+                        <div class="kitchen-ticket-copy">
+                            <strong class="kitchen-ticket-title">${escapeHtml(item.product)}</strong>
+                            <div class="kitchen-ticket-tags">
+                                <span class="kitchen-ticket-tag">Orden #${item.order_id}</span>
+                                <span class="kitchen-ticket-tag">${escapeHtml(item.table)}</span>
+                                <span class="kitchen-ticket-tag">${escapeHtml(item.category)}</span>
+                            </div>
                         </div>
-                        <span class="status-pill status-pendiente">pendiente</span>
                     </div>
-                    <div class="kitchen-card-meta">
-                        <span>Cantidad: ${item.quantity}</span>
-                        <span>Espera: ${escapeHtml(item.wait_label)}</span>
+                    <div class="kitchen-ticket-status">
+                        <span class="status-pill status-pendiente">Pendiente</span>
+                        <span class="kitchen-ticket-wait">${escapeHtml(item.wait_label)}</span>
                     </div>
-                    ${item.customer ? `<p class="inline-note">Cliente: ${escapeHtml(item.customer)}</p>` : ""}
-                    ${item.notes ? `<p class="inline-note">Notas: ${escapeHtml(item.notes)}</p>` : ""}
-                    <form method="post" action="${escapeHtml(actionTemplate.replace("__ID__", String(item.id)))}" data-confirm-title="Marcar item listo" data-confirm-message="El producto ${escapeHtml(item.product)} pasará de pendiente a listo.">
-                        <button class="button button-primary button-full" type="submit">Marcar listo</button>
-                    </form>
                 </div>
+                <div class="kitchen-ticket-grid">
+                    <div class="kitchen-ticket-block">
+                        <span class="kitchen-ticket-label">Mesa</span>
+                        <strong>${escapeHtml(item.table)}</strong>
+                    </div>
+                    ${item.customer ? `
+                        <div class="kitchen-ticket-block">
+                            <span class="kitchen-ticket-label">Cliente</span>
+                            <strong>${escapeHtml(item.customer)}</strong>
+                        </div>
+                    ` : ""}
+                </div>
+                ${item.notes ? `
+                    <div class="kitchen-ticket-notes">
+                        <span class="kitchen-ticket-label">Notas</span>
+                        <p>${escapeHtml(item.notes)}</p>
+                    </div>
+                ` : ""}
+                <form method="post" action="${escapeHtml(actionTemplate.replace("__ID__", String(item.id)))}" data-confirm-title="Marcar item listo" data-confirm-message="El producto ${escapeHtml(item.product)} pasara de pendiente a listo.">
+                    <button class="button button-primary button-full kitchen-ticket-action" type="submit">
+                        <i class="fa-solid fa-check mr-2"></i> Listo para entrega
+                    </button>
+                </form>
             </article>
         `;
     }
@@ -198,8 +215,8 @@
             statusNode.textContent = `${count} en cola`;
         }
         if (lastUpdateNode) {
-            const dateValue = updatedAt ? new Date(updatedAt) : new Date();
-            lastUpdateNode.textContent = `Actualizado ${dateValue.toLocaleTimeString()}`;
+            const dateValue = new Date();
+            lastUpdateNode.textContent = `Actualizado ${dateValue.toLocaleTimeString(navigator.language || "es-SV")}`;
         }
     }
 
@@ -223,7 +240,7 @@
             knownIds = incomingIds;
         } catch (error) {
             if (statusNode) {
-                statusNode.textContent = "Sin conexión con cocina";
+                statusNode.textContent = "Sin conexion con cocina";
             }
         }
     }
