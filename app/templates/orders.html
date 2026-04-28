@@ -116,12 +116,15 @@
                             <input type="hidden" name="mesa_id_llevar" id="mesa_id_llevar" value="">
 
                             <div class="mb-4" id="mesa_id_wrap">
-                                <label for="mesa_id" class="block text-sm font-bold text-gray-800 mb-2">Mesa disponible</label>
+                                <label for="mesa_id" class="block text-sm font-bold text-gray-800 mb-2">Mesa</label>
                                 <select id="mesa_id" name="mesa_id" class="w-full rounded-md shadow-sm border-gray-200 p-2" required>
                                     {% for mesa in available_tables %}
-                                        <option value="{{ mesa.id }}">{{ mesa.etiqueta }} | {{ mesa.zona.nombre if mesa.zona else 'Sin zona' }}</option>
+                                        <option value="{{ mesa.id }}">
+                                            {{ mesa.etiqueta }} | {{ mesa.zona.nombre if mesa.zona else 'Sin zona' }}{% if mesa.estado == 'ocupada' %} | ocupada, cuenta separada{% endif %}
+                                        </option>
                                     {% endfor %}
                                 </select>
+                                <p class="text-xs text-muted mt-2">Puedes abrir otra cuenta en una mesa ocupada si llega otro cliente o grupo.</p>
                             </div>
 
                             <div class="mb-5">
@@ -134,7 +137,7 @@
                             </button>
                         </form>
                         {% if not available_tables %}
-                            <p class="text-xs text-danger mt-3 font-medium text-center"><i class="fa-solid fa-circle-exclamation"></i> No hay mesas disponibles ahora para comer en local. Aun puedes crear pedidos para llevar.</p>
+                            <p class="text-xs text-danger mt-3 font-medium text-center"><i class="fa-solid fa-circle-exclamation"></i> No hay mesas limpias ahora para comer en local. Aun puedes crear pedidos para llevar.</p>
                         {% endif %}
                     {% else %}
                         <div class="text-center">

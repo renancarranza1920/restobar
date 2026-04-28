@@ -419,7 +419,7 @@ def get_zona(zona_id):
 def get_mesas_disponibles():
     return (
         Mesa.query.options(joinedload(Mesa.zona))
-        .filter_by(estado="disponible", limpieza_estado="limpia")
+        .filter_by(limpieza_estado="limpia")
         .filter(Mesa.id != current_app.config["TAKEOUT_TABLE_ID"])
         .order_by(Mesa.numero.asc())
         .all()
@@ -496,6 +496,16 @@ def get_active_order_for_mesa(mesa_id):
     )
 
 
+def mesa_has_other_active_orders(mesa_id, excluded_order_id=None):
+    if not mesa_id:
+        return False
+
+    query = Orden.query.filter_by(mesa_id=mesa_id, estado="abierta")
+    if excluded_order_id:
+        query = query.filter(Orden.id != excluded_order_id)
+    return db.session.query(query.exists()).scalar()
+
+
 def get_order(order_id):
     return (
         Orden.query.options(
@@ -528,9 +538,13 @@ def grouped_tables():
         Orden.query.options(joinedload(Orden.mesa), selectinload(Orden.pagos))
         .filter_by(estado="abierta")
         .filter(Orden.mesa_id != current_app.config["TAKEOUT_TABLE_ID"])
+        .order_by(Orden.created_at.desc())
         .all()
     )
-    return zonas, {order.mesa_id: order for order in active_orders}
+    active_orders_by_table = {}
+    for order in active_orders:
+        active_orders_by_table.setdefault(order.mesa_id, []).append(order)
+    return zonas, active_orders_by_table
 
 
 def get_orders_for_listing(status=None, date_value=None):
@@ -883,12 +897,17 @@ def sync_order(order):
         return
 
     if order.estado in {"pagada", "cancelada"}:
-        order.mesa.estado = "disponible"
-        if order.items:
+        if mesa_has_other_active_orders(order.mesa_id, order.id):
+            order.mesa.estado = "ocupada"
+        else:
+            order.mesa.estado = "disponible"
+        if order.items and order.mesa.estado != "ocupada":
             order.mesa.limpieza_estado = "sucia"
         return
 
     if order.items_activos:
+        order.mesa.estado = "ocupada"
+    elif mesa_has_other_active_orders(order.mesa_id, order.id):
         order.mesa.estado = "ocupada"
     else:
         order.mesa.estado = "disponible"
@@ -931,8 +950,11 @@ def settle_order(order):
     if order.total > ZERO and order.total_pagado >= order.total and order.todos_entregados:
         order.estado = "pagada"
         if not is_takeout_table(order.mesa):
-            order.mesa.estado = "disponible"
-            order.mesa.limpieza_estado = "sucia"
+            if mesa_has_other_active_orders(order.mesa_id, order.id):
+                order.mesa.estado = "ocupada"
+            else:
+                order.mesa.estado = "disponible"
+                order.mesa.limpieza_estado = "sucia"
 
         for item in order.items:
             if item.estado == "cancelado" or item.pagado:
@@ -960,6 +982,86 @@ def settle_order(order):
 
 def initial_item_status(producto):
     return "pendiente" if producto.requiere_cocina else "entregado"
+
+
+def normalize_item_notes(notes):
+    cleaned = (notes or "").strip()
+    return cleaned or None
+
+
+def item_merge_key(item):
+    return (
+        item.producto_id,
+        normalize_item_notes(item.notas),
+        money(item.precio_unitario),
+        money(item.costo_unitario),
+        item.estado,
+        bool(item.pagado),
+    )
+
+
+def can_merge_order_item(item):
+    return (
+        item.estado != "cancelado"
+        and not item.pagado
+        and not item.division_items
+    )
+
+
+def consolidate_order_items(order):
+    if order.divisiones:
+        return False
+
+    seen = {}
+    changed = False
+    for item in list(order.items):
+        if not can_merge_order_item(item):
+            continue
+
+        key = item_merge_key(item)
+        existing = seen.get(key)
+        if existing is None:
+            seen[key] = item
+            continue
+
+        existing.cantidad += item.cantidad
+        db.session.delete(item)
+        changed = True
+
+    if changed:
+        db.session.flush()
+        sync_order(order)
+    return changed
+
+
+def add_or_increment_order_item(order, product, quantity, notes=None):
+    notes = normalize_item_notes(notes)
+    status = initial_item_status(product)
+    key = (
+        product.id,
+        notes,
+        money(product.precio_venta),
+        money(product.precio_costo),
+        status,
+        False,
+    )
+
+    for item in order.items:
+        if can_merge_order_item(item) and item_merge_key(item) == key:
+            item.cantidad += quantity
+            return item, True
+
+    item = OrdenItem(
+        orden=order,
+        producto=product,
+        cantidad=quantity,
+        precio_unitario=product.precio_venta,
+        costo_unitario=product.precio_costo,
+        notas=notes,
+        estado=status,
+    )
+    db.session.add(item)
+    return item, False
 
 
 def item_can_be_prepared(user, item):

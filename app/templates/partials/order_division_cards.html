@@ -1,11 +1,19 @@
 {% if order.divisiones %}
     <div class="division-grid mt-6 border-t border-gray-200 pt-6">
         {% for division in order.divisiones|sort(attribute='numero_persona') %}
+            {% set stats = namespace(drinks=0, food=0) %}
+            {% for division_item in division.items %}
+                {% if division_item.orden_item and division_item.orden_item.requiere_cocina %}
+                    {% set stats.food = stats.food + division_item.cantidad %}
+                {% else %}
+                    {% set stats.drinks = stats.drinks + division_item.cantidad %}
+                {% endif %}
+            {% endfor %}
             <article class="panel border-{{ 'success' if division.pagada else 'gray-200' }} shadow-sm" data-division-id="{{ division.id }}">
                 <div class="p-3 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
                     <div>
                         <strong class="block text-sm text-gray-800">{{ division.nombre_visible }}</strong>
-                        <span class="text-xs text-muted">{{ division.items|length }} items</span>
+                        <span class="text-xs text-muted">{{ stats.drinks }} bebidas - {{ stats.food }} comida</span>
                     </div>
                     <span class="badge {{ 'bg-success-light text-success border-success' if division.pagada else 'bg-warning-light text-warning border-warning' }} border">
                         {{ 'Pagada' if division.pagada else 'Pendiente' }}
