@@ -37,7 +37,8 @@
                 {% if zona.mesas %}
                     <div class="grid-mesas">
                         {% for mesa in zona.mesas|sort(attribute='numero') %}
-                            {% set order = active_orders.get(mesa.id) %}
+                            {% set table_orders = active_orders.get(mesa.id, []) %}
+                            {% set order = table_orders[0] if table_orders else none %}
 
                             <article class="panel hover-lift bg-white p-4 flex flex-col justify-between table-tile">
                                 <div class="flex justify-between items-start mb-4 gap-3">
@@ -54,16 +55,20 @@
                                 </div>
 
                                 <div class="mb-4 min-h-[50px]">
-                                    {% if order %}
-                                        <div class="bg-gray-50 p-2 rounded-md border border-gray-100 flex justify-between items-center">
-                                            <div>
-                                                <div class="text-xs text-muted">Orden activa</div>
-                                                <strong class="text-sm">#{{ order.id }}</strong>
-                                            </div>
-                                            <div class="text-right">
-                                                <div class="text-xs text-muted">Total</div>
-                                                <strong class="text-sm text-success font-bold">{{ order.total|money }}</strong>
-                                            </div>
+                                    {% if table_orders %}
+                                        <div class="table-open-orders">
+                                            {% for active_order in table_orders[:3] %}
+                                                <a class="table-open-order" href="{{ url_for('web.detalle_orden', order_id=active_order.id) }}">
+                                                    <span>
+                                                        <span class="text-xs text-muted">Orden #{{ active_order.id }}</span>
+                                                        <strong>{{ active_order.nombre_cliente or 'Sin referencia' }}</strong>
+                                                    </span>
+                                                    <strong class="text-success">{{ active_order.total|money }}</strong>
+                                                </a>
+                                            {% endfor %}
+                                            {% if table_orders|length > 3 %}
+                                                <div class="text-xs text-muted px-2">+{{ table_orders|length - 3 }} cuenta{{ '' if table_orders|length - 3 == 1 else 's' }} mas</div>
+                                            {% endif %}
                                         </div>
                                     {% elif mesa.limpieza_estado == 'sucia' %}
                                         <div class="inline-alert inline-alert-warning">
@@ -77,10 +82,16 @@
                                 </div>
 
                                 <div class="table-actions border-t pt-3 border-gray-100 mt-auto">
-                                    {% if order %}
+                                    {% if table_orders %}
                                         <a class="button button-secondary button-small flex-1 text-center" href="{{ url_for('web.detalle_orden', order_id=order.id) }}">
-                                            Ver orden
+                                            Ver ultima
                                         </a>
+                                        <form method="post" action="{{ url_for('web.crear_orden') }}" class="flex-1">
+                                            <input type="hidden" name="mesa_id" value="{{ mesa.id }}">
+                                            <button class="button button-primary button-small w-full" type="submit" {% if not cash_session or mesa.limpieza_estado != 'limpia' %}disabled{% endif %}>
+                                                <i class="fa-solid fa-user-plus mr-1"></i> Otra cuenta
+                                            </button>
+                                        </form>
                                     {% else %}
                                         <form method="post" action="{{ url_for('web.crear_orden') }}" class="flex-1">
                                             <input type="hidden" name="mesa_id" value="{{ mesa.id }}">

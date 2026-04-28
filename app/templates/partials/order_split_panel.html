@@ -2,8 +2,8 @@
     <article class="panel mb-6">
         <div class="panel-header border-b bg-gray-50 flex justify-between items-center">
             <div>
-                <h2 class="panel-title font-bold"><i class="fa-solid fa-users-viewfinder mr-2"></i> Dividir cuenta</h2>
-                <p class="text-sm text-muted mt-1">Usalo solo cuando la mesa quiera pagar por separado.</p>
+                <h2 class="panel-title font-bold"><i class="fa-solid fa-wallet mr-2"></i> Cuentas separadas</h2>
+                <p class="text-sm text-muted mt-1">Elige una cuenta y asigna consumos desde una lista compacta.</p>
             </div>
 
             {% if split_mode %}
@@ -31,31 +31,16 @@
                     <div class="split-launch-head">
                         <div class="split-launch-copy">
                             <strong class="split-launch-title">Cobro normal activo</strong>
-                            <p class="text-sm text-muted mt-2">La division no se muestra siempre para no recargar la pantalla. Activala solo si esta mesa desea pagar por persona.</p>
+                            <p class="text-sm text-muted mt-2">Cuando una misma mesa quiera pagar separado, crea cuentas y reparte cada producto con un toque.</p>
                         </div>
 
                         {% if order.estado == 'abierta' %}
                             <a class="button button-primary shadow-sm hover-lift" href="{{ url_for('web.detalle_orden', order_id=order.id, split=1, personas=split_people_count) }}" data-preserve-scroll>
-                                <i class="fa-solid fa-arrows-split-up-and-left mr-2"></i> Activar division
+                                <i class="fa-solid fa-user-group mr-2"></i> Crear cuentas
                             </a>
                         {% else %}
                             <span class="badge bg-white shadow-sm border border-gray-200 text-muted">Solo en orden abierta</span>
                         {% endif %}
-                    </div>
-
-                    <div class="split-launch-points">
-                        <div class="split-launch-point">
-                            <strong>Solo cuando haga falta</strong>
-                            <span>Si todos pagan juntos, deja el cobro normal y la pantalla queda mas limpia.</span>
-                        </div>
-                        <div class="split-launch-point">
-                            <strong>2 personas o mas</strong>
-                            <span>La division siempre se hace desde 2 hasta 10 personas para evitar errores.</span>
-                        </div>
-                        <div class="split-launch-point">
-                            <strong>Cobro por persona</strong>
-                            <span>Despues de guardar el reparto, podras cobrar a cada persona por separado.</span>
-                        </div>
                     </div>
                 </div>
             {% else %}
@@ -65,110 +50,111 @@
                     </div>
                 {% endif %}
 
-                <form method="post" action="{{ url_for('web.dividir_orden', order_id=order.id) }}" data-split-form data-confirm-title="Guardar division" data-confirm-message="Se guardara la division actual de la cuenta por persona.">
-                    <div class="split-config-card p-4 rounded-md border border-gray-200 mb-6">
-                        <div class="split-config-top">
-                            <div class="mb-4 max-w-sm">
-                                <label for="people_count" class="block text-sm font-bold text-gray-800 mb-2">En cuantas personas desea dividir la cuenta</label>
-                                <select id="people_count" name="people_count" class="w-full rounded shadow-sm border-gray-300 p-2" data-split-selector data-order-url="{{ url_for('web.detalle_orden', order_id=order.id) }}" {% if division_locked %}disabled{% endif %}>
-                                    {% for count in range(2, 11) %}
-                                        <option value="{{ count }}" {% if split_people_count == count %}selected{% endif %}>{{ count }} personas</option>
-                                    {% endfor %}
-                                </select>
-                            </div>
-
-                            <div class="inline-alert inline-alert-info inline-alert-compact split-help">
-                                <i class="fa-solid fa-circle-info"></i>
-                                <span>Reparte exactamente todas las unidades entre las personas. Cada fila debe cuadrar completa.</span>
-                            </div>
+                <form method="post" action="{{ url_for('web.dividir_orden', order_id=order.id) }}" data-split-form data-split-workspace data-confirm-title="Guardar cuentas separadas" data-confirm-message="Se guardara el reparto actual para cobrar por cliente.">
+                    <div class="split-command-bar">
+                        <div>
+                            <label for="people_count" class="block text-xs font-bold text-muted uppercase tracking-wide mb-1">Cuentas</label>
+                            <select id="people_count" name="people_count" class="rounded shadow-sm border-gray-300 p-2" data-split-selector data-order-url="{{ url_for('web.detalle_orden', order_id=order.id) }}" {% if division_locked %}disabled{% endif %}>
+                                {% for count in range(2, 11) %}
+                                    <option value="{{ count }}" {% if split_people_count == count %}selected{% endif %}>{{ count }} cuentas</option>
+                                {% endfor %}
+                            </select>
                         </div>
 
-                        <div class="split-steps mb-5">
-                            <div class="split-step">
-                                <strong>1</strong>
-                                <span>Elige entre 2 y 10 personas.</span>
-                            </div>
-                            <div class="split-step">
-                                <strong>2</strong>
-                                <span>Si quieres, pon nombres para reconocer a cada quien.</span>
-                            </div>
-                            <div class="split-step">
-                                <strong>3</strong>
-                                <span>Reparte las cantidades y guarda la division.</span>
-                            </div>
+                        <div class="split-command-metric">
+                            <span>Cuenta activa</span>
+                            <strong data-active-person-label>{{ split_labels.get(1) or 'Cliente 1' }}</strong>
                         </div>
+                        <div class="split-command-metric">
+                            <span>Pendiente</span>
+                            <strong data-split-remaining-total>{{ order.total|money }}</strong>
+                        </div>
+                        <div class="split-command-metric">
+                            <span>Estado</span>
+                            <strong data-split-status>Sin completar</strong>
+                        </div>
+                    </div>
 
-                        <div class="split-person-grid">
+                    <div class="split-workbench">
+                        <aside class="split-roster" aria-label="Cuentas">
                             {% for person in range(1, split_people_count + 1) %}
-                                <div class="split-person-card">
-                                    <label class="block text-xs font-bold text-gray-600 mb-2">Persona {{ person }}</label>
+                                <section class="split-account-card {% if loop.first %}is-active{% endif %}" data-split-person-card data-person="{{ person }}">
+                                    <button class="split-account-select" type="button" data-split-person-select="{{ person }}" {% if division_locked %}disabled{% endif %}>
+                                        <span>
+                                            <span class="split-account-name" data-person-name-display="{{ person }}">{{ split_labels.get(person) or ('Cliente ' ~ person) }}</span>
+                                            <span class="split-account-stats-line">
+                                                <b data-person-drinks="{{ person }}">0</b> bebidas - <b data-person-food="{{ person }}">0</b> comida
+                                            </span>
+                                        </span>
+                                        <strong class="split-account-total" data-person-total="{{ person }}">$0.00</strong>
+                                    </button>
                                     <input
                                         name="label_{{ person }}"
                                         value="{{ split_labels.get(person, '') }}"
-                                        class="w-full rounded border-gray-300 p-2 text-sm"
-                                        placeholder="Nombre opcional"
+                                        class="split-account-name-input"
+                                        placeholder="Nombre"
+                                        aria-label="Nombre de cliente {{ person }}"
+                                        data-person-label="{{ person }}"
                                         {% if division_locked %}readonly{% endif %}
                                     >
-                                </div>
+                                </section>
+                            {% endfor %}
+                        </aside>
+
+                        <div class="split-board">
+                            {% for row in split_matrix %}
+                                {% set product = row.item.producto %}
+                                <article class="split-product-row"
+                                    data-split-row
+                                    data-item-name="{{ product.nombre if product else 'Producto' }}"
+                                    data-item-quantity="{{ row.item.cantidad }}"
+                                    data-item-price="{{ row.item.precio_unitario }}"
+                                    data-item-kind="{{ 'food' if row.item.requiere_cocina else 'drink' }}">
+                                    <div class="split-product-info">
+                                        <span class="split-product-kind">
+                                            <i class="fa-solid {{ 'fa-utensils' if row.item.requiere_cocina else 'fa-martini-glass-citrus' }}"></i>
+                                        </span>
+                                        <div>
+                                            <strong>{{ product.nombre if product else '-' }}</strong>
+                                            <span>{{ row.item.cantidad }} uds - {{ row.item.precio_unitario|money }} c/u - {{ row.item.subtotal|money }}</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="split-product-progress">
+                                        <div class="split-chip-row">
+                                            {% for person in range(1, split_people_count + 1) %}
+                                                <span class="split-person-chip" data-person-chip="{{ person }}">
+                                                    <b data-person-chip-qty="{{ person }}">{{ row.assignments.get(person, 0) }}</b>
+                                                    <span data-cell-label="{{ person }}">{{ split_labels.get(person) or ('Cliente ' ~ person) }}</span>
+                                                </span>
+                                                <input
+                                                    type="hidden"
+                                                    name="item_{{ row.item.id }}_person_{{ person }}"
+                                                    value="{{ row.assignments.get(person, 0) }}"
+                                                    data-split-input
+                                                    data-person="{{ person }}"
+                                                >
+                                            {% endfor %}
+                                        </div>
+                                        <span class="split-pending-pill"><b data-row-remaining>{{ row.item.cantidad - row.assigned_total }}</b> pendiente</span>
+                                    </div>
+
+                                    <div class="split-active-controls">
+                                        <button class="split-mini-button" type="button" data-split-active-step="-1" aria-label="Quitar de la cuenta activa" {% if division_locked %}disabled{% endif %}>
+                                            <span aria-hidden="true">-</span>
+                                        </button>
+                                        <span class="split-active-count" data-active-row-qty>0</span>
+                                        <button class="split-mini-button split-plus-button" type="button" data-split-active-step="1" aria-label="Agregar a la cuenta activa" {% if division_locked %}disabled{% endif %}>
+                                            <span aria-hidden="true">+</span>
+                                        </button>
+                                    </div>
+                                </article>
                             {% endfor %}
                         </div>
                     </div>
 
-                    <div class="split-table-toolbar">
-                        <div>
-                            <strong class="split-table-title">Reparto por producto</strong>
-                            <p class="text-xs text-muted mt-1">Cada fila debe sumar el total del producto para evitar diferencias al cobrar.</p>
-                        </div>
-                        <span class="badge bg-white shadow-sm border border-gray-200 text-muted">
-                            {{ split_people_count }} personas
-                        </span>
-                    </div>
-
-                    <div class="table-wrap no-border shadow-sm mb-6 overflow-x-auto split-table-wrap">
-                        <table class="filament-table text-sm">
-                            <thead>
-                                <tr>
-                                    <th>Producto</th>
-                                    <th class="text-center">Total</th>
-                                    {% for person in range(1, split_people_count + 1) %}
-                                        <th class="text-center font-bold text-primary">
-                                            {{ split_labels.get(person) or ('Persona ' ~ person) }}
-                                        </th>
-                                    {% endfor %}
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for row in split_matrix %}
-                                    <tr data-split-row data-item-name="{{ row.item.producto.nombre if row.item.producto else 'Producto' }}" data-item-quantity="{{ row.item.cantidad }}">
-                                        <td>
-                                            <div class="font-medium text-gray-800">{{ row.item.producto.nombre if row.item.producto else '-' }}</div>
-                                            <div class="split-product-meta">
-                                                {{ row.item.precio_unitario|money }} c/u - {{ row.item.subtotal|money }} total
-                                            </div>
-                                        </td>
-                                        <td class="text-center font-bold">{{ row.item.cantidad }}</td>
-                                        {% for person in range(1, split_people_count + 1) %}
-                                            <td class="text-center">
-                                                <input
-                                                    class="split-qty-input"
-                                                    type="number"
-                                                    min="0"
-                                                    max="{{ row.item.cantidad }}"
-                                                    name="item_{{ row.item.id }}_person_{{ person }}"
-                                                    value="{{ row.assignments.get(person, 0) }}"
-                                                    data-split-input
-                                                    {% if division_locked %}readonly{% endif %}
-                                                >
-                                            </td>
-                                        {% endfor %}
-                                    </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <button class="button button-secondary button-full shadow-sm hover-lift" type="submit" {% if division_locked or order.estado != 'abierta' %}disabled{% endif %}>
-                        <i class="fa-solid fa-arrows-split-up-and-left mr-2"></i> {{ 'Actualizar division' if order.divisiones else 'Guardar division' }}
+                    <button class="button button-secondary button-full shadow-sm hover-lift mt-5" type="submit" {% if division_locked or order.estado != 'abierta' %}disabled{% endif %} data-split-submit>
+                        <i class="fa-solid fa-floppy-disk mr-2"></i> {{ 'Actualizar cuentas' if order.divisiones else 'Guardar cuentas separadas' }}
                     </button>
                 </form>
 
