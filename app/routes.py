@@ -49,9 +49,11 @@ from .models import (
     Zona,
 )
 from .services import (
+    add_or_increment_order_item,
     bool_from_form,
     build_split_matrix,
     clear_divisiones,
+    consolidate_order_items,
     default_endpoint_for_user,
     default_theme,
     division_can_receive_payment,
@@ -72,13 +74,12 @@ from .services import (
     get_producto,
     get_productos,
     get_report_snapshot,
+    get_inventory_for_range,
     get_user,
     get_user_by_nickname,
-    get_inventory_for_range,
     get_zona,
     get_zonas,
     grouped_tables,
-    initial_item_status,
     item_can_be_delivered,
     item_can_be_prepared,
     normalize_item_delivery_states,
@@ -1187,11 +1188,7 @@ def crear_orden():
         flash("No puedes abrir una orden en una mesa marcada como sucia. Márcala como limpia primero.", "warning")
         return redirect(request.referrer or url_for("web.ordenes"))
 
-    existing_order = None if is_takeout else get_active_order_for_mesa(mesa.id)
-    if existing_order:
-        flash("Esa mesa ya tiene una orden abierta.", "info")
-        return redirect(url_for("web.detalle_orden", order_id=existing_order.id))
-
+    was_occupied = not is_takeout and mesa.estado == "ocupada"
     order = Orden(
         mesa_id=mesa.id,
         sesion_caja_id=cash_session.id,
@@ -1203,7 +1200,10 @@ def crear_orden():
     db.session.add(order)
     db.session.commit()
 
-    flash(f"Se abrio la orden #{order.id}.", "success")
+    if was_occupied:
+        flash(f"Se abrio una cuenta separada en {mesa.etiqueta}: orden #{order.id}.", "success")
+    else:
+        flash(f"Se abrio la orden #{order.id}.", "success")
     return redirect(url_for("web.detalle_orden", order_id=order.id))
 
 
@@ -1215,7 +1215,9 @@ def detalle_orden(order_id):
         flash("La orden no existe.", "error")
         return redirect(url_for("web.ordenes"))
 
-    if normalize_item_delivery_states(order):
+    state_changed = normalize_item_delivery_states(order)
+    items_consolidated = consolidate_order_items(order)
+    if state_changed or items_consolidated:
         sync_order(order)
         db.session.commit()
 
@@ -1345,18 +1347,17 @@ def agregar_item_orden(order_id):
         if not changed and order.divisiones:
             return redirect(url_for("web.detalle_orden", order_id=order.id))
 
+    merged_lines = 0
     for line in selected_lines:
         product = line["product"]
-        item = OrdenItem(
-            orden=order,
-            producto=product,
-            cantidad=line["quantity"],
-            precio_unitario=product.precio_venta,
-            costo_unitario=product.precio_costo,
-            notas=line["notes"] or None,
-            estado=initial_item_status(product),
+        _, merged = add_or_increment_order_item(
+            order,
+            product,
+            line["quantity"],
+            line["notes"],
         )
-        db.session.add(item)
+        if merged:
+            merged_lines += 1
 
     db.session.flush()
     sync_order(order)
@@ -1364,10 +1365,16 @@ def agregar_item_orden(order_id):
 
     if len(selected_lines) == 1:
         line = selected_lines[0]
-        flash(f"Se agrego {line['product'].nombre} x{line['quantity']}.", "success")
+        if merged_lines:
+            flash(f"Se sumo {line['product'].nombre} x{line['quantity']} a la linea existente.", "success")
+        else:
+            flash(f"Se agrego {line['product'].nombre} x{line['quantity']}.", "success")
     else:
         total_units = sum(line["quantity"] for line in selected_lines)
-        flash(f"Se agregaron {len(selected_lines)} productos ({total_units} unidades).", "success")
+        if merged_lines:
+            flash(f"Se agregaron {len(selected_lines)} productos ({total_units} unidades), sumando repetidos.", "success")
+        else:
+            flash(f"Se agregaron {len(selected_lines)} productos ({total_units} unidades).", "success")
     return redirect(url_for("web.detalle_orden", order_id=order.id))
 
 
@@ -2104,10 +2111,13 @@ def api_mesas():
         payload = []
         for zona in zonas:
             for mesa in zona.mesas:
-                active_order = active_orders.get(mesa.id)
+                table_orders = active_orders.get(mesa.id, [])
+                active_order = table_orders[0] if table_orders else None
                 data = mesa.to_dict()
                 data["orden_abierta_id"] = active_order.id if active_order else None
                 data["orden_total"] = float(active_order.total) if active_order else 0
+                data["ordenes_abiertas"] = len(table_orders)
+                data["ordenes_total"] = sum(float(order.total) for order in table_orders)
                 payload.append(data)
         return jsonify(payload)
     except SQLAlchemyError as exc:

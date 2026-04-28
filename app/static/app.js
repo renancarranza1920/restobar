@@ -266,6 +266,210 @@
         return null;
     }
 
+    function wireSplitWorkspace() {
+        const workspace = document.querySelector("[data-split-workspace]");
+        if (!workspace || workspace.dataset.splitWired === "true") {
+            return;
+        }
+
+        workspace.dataset.splitWired = "true";
+
+        const moneyFormatter = new Intl.NumberFormat(navigator.language || "es-SV", {
+            style: "currency",
+            currency: "USD",
+        });
+        const cards = workspace.querySelectorAll("[data-split-person-card]");
+        const labels = workspace.querySelectorAll("[data-person-label]");
+        const activePersonLabel = workspace.querySelector("[data-active-person-label]");
+        const remainingTotalNode = workspace.querySelector("[data-split-remaining-total]");
+        const statusNode = workspace.querySelector("[data-split-status]");
+        const submitButton = workspace.querySelector("[data-split-submit]");
+        let activePerson = "1";
+
+        function cleanQuantity(input, maxValue) {
+            const nextValue = Number.parseInt(input?.value || "0", 10);
+            if (Number.isNaN(nextValue) || nextValue < 0) {
+                return 0;
+            }
+            return Math.min(nextValue, maxValue);
+        }
+
+        function personName(person) {
+            const input = workspace.querySelector(`[data-person-label="${person}"]`);
+            const rawName = (input?.value || "").trim();
+            return rawName || `Cliente ${person}`;
+        }
+
+        function setActivePerson(person) {
+            activePerson = String(person || "1");
+            cards.forEach((card) => {
+                card.classList.toggle("is-active", card.dataset.person === activePerson);
+            });
+            if (activePersonLabel) {
+                activePersonLabel.textContent = personName(activePerson);
+            }
+        }
+
+        function refreshLabels() {
+            labels.forEach((input) => {
+                const person = input.dataset.personLabel;
+                const name = personName(person);
+                workspace.querySelectorAll(`[data-cell-label="${person}"]`).forEach((node) => {
+                    node.textContent = name;
+                });
+                workspace.querySelectorAll(`[data-person-name-display="${person}"]`).forEach((node) => {
+                    node.textContent = name;
+                });
+            });
+            if (activePersonLabel) {
+                activePersonLabel.textContent = personName(activePerson);
+            }
+        }
+
+        function rowInput(row, person) {
+            return row?.querySelector(`[data-split-input][data-person="${person}"]`);
+        }
+
+        function assignedInRow(row, maxValue) {
+            return Array.from(row.querySelectorAll("[data-split-input]")).reduce(
+                (total, input) => total + cleanQuantity(input, maxValue),
+                0
+            );
+        }
+
+        function updateWorkspace() {
+            const totals = {};
+            const drinks = {};
+            const food = {};
+            let remainingMoney = 0;
+            let remainingUnits = 0;
+            let hasOverflow = false;
+
+            workspace.querySelectorAll("[data-split-row]").forEach((row) => {
+                const totalUnits = Number.parseInt(row.dataset.itemQuantity || "0", 10) || 0;
+                const price = Number.parseFloat(row.dataset.itemPrice || "0") || 0;
+                const kind = row.dataset.itemKind || "drink";
+                let assigned = 0;
+
+                row.querySelectorAll("[data-split-input]").forEach((input) => {
+                    const person = input.dataset.person;
+                    const qty = cleanQuantity(input, totalUnits);
+                    input.value = qty;
+                    assigned += qty;
+                    totals[person] = (totals[person] || 0) + qty * price;
+                    if (kind === "food") {
+                        food[person] = (food[person] || 0) + qty;
+                    } else {
+                        drinks[person] = (drinks[person] || 0) + qty;
+                    }
+                });
+
+                const remaining = Math.max(totalUnits - assigned, 0);
+                const remainingNode = row.querySelector("[data-row-remaining]");
+                const activeQtyNode = row.querySelector("[data-active-row-qty]");
+                const activeInput = rowInput(row, activePerson);
+                if (remainingNode) {
+                    remainingNode.textContent = remaining;
+                }
+                if (activeQtyNode) {
+                    activeQtyNode.textContent = cleanQuantity(activeInput, totalUnits);
+                }
+                row.querySelectorAll("[data-person-chip]").forEach((chip) => {
+                    const person = chip.dataset.personChip;
+                    const input = rowInput(row, person);
+                    const qty = cleanQuantity(input, totalUnits);
+                    chip.classList.toggle("is-active", person === activePerson);
+                    chip.classList.toggle("has-qty", qty > 0);
+                    const qtyNode = chip.querySelector(`[data-person-chip-qty="${person}"]`);
+                    if (qtyNode) {
+                        qtyNode.textContent = qty;
+                    }
+                });
+                row.classList.toggle("is-complete", remaining === 0 && assigned === totalUnits);
+                row.classList.toggle("has-overflow", assigned > totalUnits);
+                hasOverflow = hasOverflow || assigned > totalUnits;
+                remainingUnits += remaining;
+                remainingMoney += remaining * price;
+            });
+
+            cards.forEach((card) => {
+                const person = card.dataset.person;
+                const totalNode = workspace.querySelector(`[data-person-total="${person}"]`);
+                const drinksNode = workspace.querySelector(`[data-person-drinks="${person}"]`);
+                const foodNode = workspace.querySelector(`[data-person-food="${person}"]`);
+                if (totalNode) {
+                    totalNode.textContent = moneyFormatter.format(totals[person] || 0);
+                }
+                if (drinksNode) {
+                    drinksNode.textContent = drinks[person] || 0;
+                }
+                if (foodNode) {
+                    foodNode.textContent = food[person] || 0;
+                }
+            });
+
+            if (remainingTotalNode) {
+                remainingTotalNode.textContent = moneyFormatter.format(remainingMoney);
+            }
+            if (statusNode) {
+                statusNode.textContent = hasOverflow
+                    ? "Hay productos de mas"
+                    : remainingUnits === 0
+                        ? "Listo para guardar"
+                        : `${remainingUnits} unidad${remainingUnits === 1 ? "" : "es"} pendiente${remainingUnits === 1 ? "" : "s"}`;
+                statusNode.classList.toggle("text-success", remainingUnits === 0 && !hasOverflow);
+            }
+            if (submitButton && !submitButton.disabled) {
+                submitButton.classList.toggle("button-success", remainingUnits === 0);
+                submitButton.classList.toggle("button-secondary", remainingUnits !== 0);
+            }
+
+            refreshLabels();
+        }
+
+        workspace.addEventListener("click", (event) => {
+            const selector = event.target.closest("[data-split-person-select]");
+            if (selector) {
+                setActivePerson(selector.dataset.splitPersonSelect);
+                updateWorkspace();
+                return;
+            }
+
+            const stepButton = event.target.closest("[data-split-active-step]");
+            if (!stepButton) {
+                return;
+            }
+
+            const row = event.target.closest("[data-split-row]");
+            const input = rowInput(row, activePerson);
+            if (!row || !input) {
+                return;
+            }
+
+            const maxValue = Number.parseInt(row.dataset.itemQuantity || "0", 10) || 0;
+            const step = Number.parseInt(stepButton.dataset.splitActiveStep || "0", 10) || 0;
+            if (step > 0 && assignedInRow(row, maxValue) >= maxValue) {
+                updateWorkspace();
+                return;
+            }
+            input.value = cleanQuantity(input, maxValue) + step;
+            input.value = cleanQuantity(input, maxValue);
+            updateWorkspace();
+        });
+
+        workspace.addEventListener("input", (event) => {
+            if (event.target.matches("[data-split-input]")) {
+                updateWorkspace();
+            }
+            if (event.target.matches("[data-person-label]")) {
+                refreshLabels();
+            }
+        });
+
+        setActivePerson(activePerson);
+        updateWorkspace();
+    }
+
     function wireFlashMessages() {
         document.querySelectorAll("[data-flash]").forEach((flash) => {
             if (flash.dataset.dismissWired === "true") {
@@ -299,6 +503,7 @@
     restoreScrollPosition();
     wireFlashMessages();
     renderLocalDateNodes();
+    wireSplitWorkspace();
 
     document.addEventListener("click", (event) => {
         const closeFlashButton = event.target.closest("[data-flash-close]");
