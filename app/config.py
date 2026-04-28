@@ -31,6 +31,11 @@ class Config:
 
     DEFAULT_ADMIN_NICKNAME = getenv("DEFAULT_ADMIN_NICKNAME", "admin")
     DEFAULT_ADMIN_PASSWORD = getenv("DEFAULT_ADMIN_PASSWORD", "admin123")
+    APP_TIMEZONE = getenv("APP_TIMEZONE", "America/El_Salvador")
+    TAKEOUT_TABLE_ID = int(getenv("TAKEOUT_TABLE_ID", "999"))
+    TAKEOUT_TABLE_NUMBER = int(getenv("TAKEOUT_TABLE_NUMBER", "999"))
+    TAKEOUT_TABLE_ALIAS = getenv("TAKEOUT_TABLE_ALIAS", "Para llevar")
+    TAKEOUT_ZONE_NAME = getenv("TAKEOUT_ZONE_NAME", "Sistema")
     PRODUCT_UPLOAD_DIR = BASE_DIR / "app" / "static" / "uploads" / "products"
 
     _database_url = getenv("DATABASE_URL")

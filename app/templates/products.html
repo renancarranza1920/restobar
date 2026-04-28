@@ -15,6 +15,11 @@
             <a class="button button-secondary hover-lift shadow-sm" href="{{ url_for('web.exportar_reporte', kind='productos') }}">
                 <i class="fa-solid fa-file-csv mr-2"></i> CSV
             </a>
+            {% if user_can(current_user, 'categorias') %}
+                <a class="button button-ghost hover-lift shadow-sm border-gray-200" href="{{ url_for('web.categorias') }}">
+                    <i class="fa-solid fa-tags mr-2"></i> Categorias
+                </a>
+            {% endif %}
             <a class="button button-primary hover-lift shadow-sm" href="{{ url_for('web.nuevo_producto') }}">
                 <i class="fa-solid fa-plus mr-2"></i> Nuevo producto
             </a>
@@ -72,7 +77,7 @@
                                     </div>
                                     <div>
                                         <span>Stock</span>
-                                        <strong>{{ product.stock_actual if product.maneja_stock else 'No aplica' }}</strong>
+                                        <strong>{{ product.stock_actual if product.controla_stock else 'No aplica' }}</strong>
                                     </div>
                                     <div>
                                         <span>Flujo</span>

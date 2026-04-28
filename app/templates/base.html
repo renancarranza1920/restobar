@@ -34,7 +34,7 @@
                 </button>
             </div>
 
-            <div class="sidebar-date-badge shadow-sm mt-4">
+            <div class="sidebar-date-badge shadow-sm mt-4" data-local-current-date>
                 {{ now_label | default('17/04/2026') }}
             </div>
 
@@ -70,7 +70,7 @@
                         </strong>
                         <div class="text-xs text-muted mt-1">
                             {% if active_session %}
-                                Desde {{ active_session.fecha_apertura|datetime_short }}
+                                Desde <span data-local-datetime="{{ active_session.fecha_apertura|datetime_iso }}">{{ active_session.fecha_apertura|datetime_short }}</span>
                             {% else %}
                                 Sin sesión activa
                             {% endif %}

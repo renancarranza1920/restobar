@@ -38,7 +38,7 @@
                         </form>
                     {% endif %}
 
-                    {% if can_deliver and item.estado == 'listo' %}
+                    {% if can_deliver and item.requiere_cocina and item.estado == 'listo' %}
                         <form method="post" action="{{ url_for('web.entregar_item', item_id=item.id) }}" data-confirm-title="Entregar platillo" data-confirm-message="Se marcará {{ item.producto.nombre if item.producto else 'el producto' }} como entregado a la mesa.">
                             <button class="button button-success button-small shadow-sm" type="submit">Entregar</button>
                         </form>

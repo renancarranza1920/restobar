@@ -1,24 +1,43 @@
 (function () {
     const scrollKey = "restobar:scroll-restore";
     const confirmModal = document.querySelector("[data-confirm-modal]");
-    const confirmTitle = document.querySelector("[data-confirm-title]");
-    const confirmMessage = document.querySelector("[data-confirm-message]");
-    const confirmAccept = document.querySelector("[data-confirm-accept]");
-    const confirmCancelButtons = document.querySelectorAll("[data-confirm-cancel]");
+    const confirmTitle = confirmModal?.querySelector(".confirm-dialog-title[data-confirm-title]");
+    const confirmMessage = confirmModal?.querySelector(".confirm-dialog-message[data-confirm-message]");
+    const confirmAccept = confirmModal?.querySelector("[data-confirm-accept]");
+    const confirmCancelButtons = confirmModal
+        ? confirmModal.querySelectorAll("[data-confirm-cancel]")
+        : [];
     const sidebar = document.querySelector("[data-sidebar]");
     const sidebarBackdrop = document.querySelector("[data-sidebar-backdrop]");
 
     let pendingConfirmAction = null;
 
+    if ("scrollRestoration" in window.history) {
+        window.history.scrollRestoration = "manual";
+    }
+
+    function setFormSubmittingState(isSubmitting) {
+        if (isSubmitting) {
+            document.body.dataset.formSubmitting = "true";
+            return;
+        }
+        delete document.body.dataset.formSubmitting;
+    }
+
     function currentPathKey() {
         return `${window.location.pathname}${window.location.search}`;
     }
 
-    function storeScrollPosition() {
+    function currentPathname() {
+        return window.location.pathname;
+    }
+
+    function storeScrollPosition(path = currentPathKey(), pathname = currentPathname()) {
         sessionStorage.setItem(
             scrollKey,
             JSON.stringify({
-                path: currentPathKey(),
+                path,
+                pathname,
                 y: window.scrollY || window.pageYOffset || 0,
             })
         );
@@ -32,14 +51,13 @@
 
         try {
             const data = JSON.parse(raw);
-            if (data.path !== currentPathKey()) {
+            if (data.path !== currentPathKey() && data.pathname !== currentPathname()) {
                 return;
             }
 
             const y = Number(data.y || 0);
-            window.requestAnimationFrame(() => {
-                window.scrollTo(0, y);
-                window.setTimeout(() => window.scrollTo(0, y), 90);
+            [0, 120, 320, 700].forEach((delay) => {
+                window.setTimeout(() => window.scrollTo(0, y), delay);
             });
         } catch (error) {
             // Ignore malformed storage values.
@@ -114,6 +132,72 @@
         scheduleFlashDismiss(flash);
     }
 
+    function localDateLocale() {
+        return navigator.language || "es-SV";
+    }
+
+    function parseUtcDate(rawValue) {
+        if (!rawValue) {
+            return null;
+        }
+
+        const normalizedValue =
+            /[zZ]$|[+\-]\d{2}:\d{2}$/.test(rawValue) ? rawValue : `${rawValue}Z`;
+        const parsedDate = new Date(normalizedValue);
+        return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
+    }
+
+    function formatLocalDate(rawValue, mode) {
+        const dateValue = parseUtcDate(rawValue);
+        if (!dateValue) {
+            return "";
+        }
+
+        if (mode === "date") {
+            return dateValue.toLocaleDateString(localDateLocale(), {
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit",
+            });
+        }
+
+        if (mode === "time") {
+            return dateValue.toLocaleTimeString(localDateLocale(), {
+                hour: "numeric",
+                minute: "2-digit",
+                second: "2-digit",
+            });
+        }
+
+        return dateValue.toLocaleString(localDateLocale(), {
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "numeric",
+            minute: "2-digit",
+        });
+    }
+
+    function renderLocalDateNodes() {
+        document.querySelectorAll("[data-local-datetime]").forEach((node) => {
+            const value = formatLocalDate(
+                node.getAttribute("data-local-datetime"),
+                node.getAttribute("data-local-format") || "datetime"
+            );
+            if (value) {
+                node.textContent = value;
+            }
+        });
+
+        document.querySelectorAll("[data-local-current-date]").forEach((node) => {
+            node.textContent = new Date().toLocaleDateString(localDateLocale(), {
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit",
+            });
+        });
+    }
+
     function closeConfirmModal() {
         if (!confirmModal) {
             pendingConfirmAction = null;
@@ -147,6 +231,7 @@
             return;
         }
 
+        setFormSubmittingState(true);
         if ((form.method || "get").toLowerCase() === "post") {
             storeScrollPosition();
         }
@@ -213,6 +298,7 @@
 
     restoreScrollPosition();
     wireFlashMessages();
+    renderLocalDateNodes();
 
     document.addEventListener("click", (event) => {
         const closeFlashButton = event.target.closest("[data-flash-close]");
@@ -234,6 +320,15 @@
         if (event.target.closest(".nav-link") && document.body.classList.contains("sidebar-open")) {
             closeSidebar();
             return;
+        }
+
+        const preserveLink = event.target.closest("a[data-preserve-scroll]");
+        if (preserveLink?.href) {
+            const targetUrl = new URL(preserveLink.href, window.location.origin);
+            storeScrollPosition(
+                `${targetUrl.pathname}${targetUrl.search}`,
+                targetUrl.pathname
+            );
         }
 
         const submitter = event.target.closest("button, input[type='submit']");
@@ -308,6 +403,11 @@
         }
     });
 
+    window.addEventListener("pageshow", () => {
+        setFormSubmittingState(false);
+        renderLocalDateNodes();
+    });
+
     document.querySelectorAll(".toggle-password").forEach((button) => {
         button.addEventListener("click", () => {
             const field = button.parentElement?.querySelector("input");
@@ -327,13 +427,18 @@
     const splitSelector = document.querySelector("[data-split-selector]");
     if (splitSelector) {
         splitSelector.addEventListener("change", () => {
-            const orderUrl = splitSelector.getAttribute("data-order-url");
+            const orderUrl = splitSelector.getAttribute("data-order-url") || window.location.href;
             if (!orderUrl) {
                 return;
             }
 
             const nextUrl = new URL(orderUrl, window.location.origin);
             nextUrl.searchParams.set("personas", splitSelector.value);
+            nextUrl.searchParams.set("split", "1");
+            storeScrollPosition(
+                `${nextUrl.pathname}${nextUrl.search}`,
+                nextUrl.pathname
+            );
             window.location.assign(nextUrl.toString());
         });
     }

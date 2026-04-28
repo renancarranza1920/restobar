@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import timezone
 
 from flask import Flask, session
 from flask_login import current_user
@@ -7,9 +7,12 @@ from .config import Config
 from .extensions import db, login_manager, migrate
 from .services import (
     bootstrap_admin_account,
+    bootstrap_takeout_table,
     default_theme,
     get_active_cash_session,
     get_user,
+    local_now,
+    localize_datetime,
     money,
     navigation_for_user,
     role_label,
@@ -36,6 +39,7 @@ def create_app():
 
     with app.app_context():
         bootstrap_admin_account()
+        bootstrap_takeout_table()
 
     @login_manager.user_loader
     def load_user(user_id):
@@ -49,7 +53,16 @@ def create_app():
     def datetime_short(value):
         if not value:
             return "--"
-        return value.strftime("%d/%m/%Y %I:%M %p")
+        localized_value = localize_datetime(value)
+        return localized_value.strftime("%d/%m/%Y %I:%M %p")
+
+    @app.template_filter("datetime_iso")
+    def datetime_iso(value):
+        if not value:
+            return ""
+        if getattr(value, "tzinfo", None) is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.isoformat()
 
     @app.template_filter("time_ago")
     def time_ago_filter(value):
@@ -84,7 +97,7 @@ def create_app():
             ),
             "role_label": role_label,
             "user_can": user_can,
-            "now_label": datetime.now().strftime("%d/%m/%Y"),
+            "now_label": local_now().strftime("%d/%m/%Y"),
         }
 
     @app.shell_context_processor

@@ -5,12 +5,12 @@
 
     <header class="flex justify-between items-end mb-6">
         <div>
-            <p class="text-xs font-bold text-primary uppercase tracking-wide mb-1">Catálogo</p>
+            <p class="text-xs font-bold text-primary uppercase tracking-wide mb-1">Catalogo</p>
             <h1 class="text-2xl font-bold text-gray-800">
                 <i class="fa-solid fa-cube mr-2 text-muted"></i>
                 {{ 'Editar producto' if product else 'Nuevo producto' }}
             </h1>
-            <p class="text-sm text-muted mt-1">Completa la información comercial, inventario, imagen y visibilidad.</p>
+            <p class="text-sm text-muted mt-1">Completa la informacion comercial, imagen, disponibilidad y la forma en que este producto se controla.</p>
         </div>
 
         <div>
@@ -32,7 +32,7 @@
                 <article class="panel mb-6">
                     <div class="panel-header border-b bg-gray-50">
                         <h2 class="panel-title font-bold">
-                            <i class="fa-solid fa-cube mr-2 text-muted"></i> Datos básicos
+                            <i class="fa-solid fa-cube mr-2 text-muted"></i> Datos basicos
                         </h2>
                     </div>
 
@@ -51,16 +51,31 @@
 
                         <div class="mb-5">
                             <label for="category_id" class="block text-sm font-bold text-gray-800 mb-2">
-                                Categoría <span class="text-danger">*</span>
+                                Categoria <span class="text-danger">*</span>
                             </label>
-                            <select id="category_id" name="category_id" required>
-                                <option value="" disabled {% if not product %}selected{% endif %}>Selecciona una categoría...</option>
+                            <select id="category_id" name="category_id" required data-category-select>
+                                <option value="" disabled {% if not product %}selected{% endif %}>Selecciona una categoria...</option>
                                 {% for category in categories %}
-                                    <option value="{{ category.id }}" {% if product and category.id == product.categoria_id %}selected{% endif %}>
+                                    <option
+                                        value="{{ category.id }}"
+                                        data-envia-cocina="{{ 'true' if category.envia_a_cocina else 'false' }}"
+                                        {% if product and category.id == product.categoria_id %}selected{% endif %}
+                                    >
                                         {{ category.nombre }}
                                     </option>
                                 {% endfor %}
                             </select>
+                            {% if user_can(current_user, 'categorias') %}
+                                <div class="mt-2">
+                                    <a class="text-sm text-primary font-semibold" href="{{ url_for('web.categorias') }}">
+                                        <i class="fa-solid fa-tags mr-1"></i> Administrar categorias
+                                    </a>
+                                </div>
+                            {% endif %}
+                            <div class="inline-alert inline-alert-info inline-alert-compact mt-3">
+                                <i class="fa-solid fa-circle-info mr-2"></i>
+                                <span data-flow-note-text>El flujo del producto se define por la categoria seleccionada.</span>
+                            </div>
                         </div>
 
                         <div>
@@ -83,8 +98,8 @@
                     </div>
 
                     <div class="panel-body">
-                        <div class="form-grid two-up mb-5">
-                            <div>
+                        <div class="form-grid two-up mb-5" data-price-grid>
+                            <div data-kitchen-extra>
                                 <label for="cost_price" class="block text-sm font-bold text-gray-800 mb-2">Precio de costo</label>
                                 <input
                                     id="cost_price"
@@ -96,7 +111,7 @@
                                 >
                             </div>
 
-                            <div>
+                            <div data-sale-price-field>
                                 <label for="sale_price" class="block text-sm font-bold text-gray-800 mb-2">
                                     Precio de venta <span class="text-danger">*</span>
                                 </label>
@@ -112,7 +127,7 @@
                             </div>
                         </div>
 
-                        <div class="form-grid two-up mb-5">
+                        <div class="form-grid two-up mb-5" data-kitchen-extra>
                             <div>
                                 <label for="purchase_unit" class="block text-sm font-bold text-gray-800 mb-2">Unidad de compra</label>
                                 <input
@@ -135,7 +150,7 @@
                             </div>
                         </div>
 
-                        <div>
+                        <div data-stock-field data-kitchen-extra>
                             <label for="current_stock" class="block text-sm font-bold text-gray-800 mb-2">
                                 {{ 'Stock actual' if product else 'Stock inicial' }}
                             </label>
@@ -143,9 +158,10 @@
                                 id="current_stock"
                                 name="current_stock"
                                 type="number"
-                                value="{{ product.stock_actual if product else 0 }}"
+                                value="{{ product.stock_actual if product and product.controla_stock else 0 }}"
+                                data-stock-input
                             >
-                            <p class="text-xs text-muted mt-1">
+                            <p class="text-xs text-muted mt-1" data-stock-help>
                                 Se usa como base para el control de inventario del producto.
                             </p>
                         </div>
@@ -177,13 +193,13 @@
                                 <input type="checkbox" name="remove_image" style="width:auto; margin-top: 0.2rem;">
                                 <div>
                                     <span class="block text-sm font-bold text-danger">Quitar imagen actual</span>
-                                    <span class="block text-xs text-muted mt-1">Se eliminará al guardar los cambios.</span>
+                                    <span class="block text-xs text-muted mt-1">Se eliminara al guardar los cambios.</span>
                                 </div>
                             </label>
                         {% else %}
                             <div class="empty-state mb-5">
                                 <i class="fa-regular fa-image"></i>
-                                <p class="text-sm font-medium text-muted">Este producto aún no tiene imagen.</p>
+                                <p class="text-sm font-medium text-muted">Este producto aun no tiene imagen.</p>
                             </div>
                         {% endif %}
 
@@ -214,35 +230,42 @@
                                 >
                                 <div>
                                     <span class="block text-sm font-bold text-gray-800">Disponible para venta</span>
-                                    <span class="block text-xs text-muted mt-1">Si se desmarca, el producto se oculta del catálogo.</span>
+                                    <span class="block text-xs text-muted mt-1">Si se desmarca, el producto se oculta del catalogo.</span>
                                 </div>
                             </label>
 
-                            <label class="flex items-start gap-3 cursor-pointer">
+                            <label class="flex items-start gap-3 cursor-pointer" data-stock-toggle-row data-kitchen-extra>
                                 <input
                                     type="checkbox"
                                     name="manages_stock"
+                                    data-stock-toggle
                                     style="width:auto; margin-top: 0.2rem;"
-                                    {% if not product or product.maneja_stock %}checked{% endif %}
+                                    {% if not product or product.controla_stock %}checked{% endif %}
                                 >
                                 <div>
                                     <span class="block text-sm font-bold text-gray-800">Control de stock</span>
-                                    <span class="block text-xs text-muted mt-1">Descuenta unidades automáticamente al vender.</span>
+                                    <span class="block text-xs text-muted mt-1">Descuenta unidades automaticamente al vender.</span>
                                 </div>
                             </label>
 
-                            <label class="flex items-start gap-3 cursor-pointer">
+                            <label class="flex items-start gap-3">
                                 <input
                                     type="checkbox"
-                                    name="requires_kitchen"
+                                    data-kitchen-indicator
                                     style="width:auto; margin-top: 0.2rem;"
                                     {% if product and product.requiere_cocina %}checked{% endif %}
+                                    disabled
                                 >
                                 <div>
-                                    <span class="block text-sm font-bold text-gray-800">Requiere cocina</span>
-                                    <span class="block text-xs text-muted mt-1">Úsalo si el producto debe entrar al flujo de cocina.</span>
+                                    <span class="block text-sm font-bold text-gray-800" data-kitchen-label>Flujo operativo</span>
+                                    <span class="block text-xs text-muted mt-1" data-kitchen-description>La categoria seleccionada define si el producto pasa por cocina.</span>
                                 </div>
                             </label>
+
+                            <div class="inline-alert inline-alert-info">
+                                <i class="fa-solid fa-utensils mr-2"></i>
+                                <span data-kitchen-status-text>Selecciona una categoria para ver si el producto pasa por cocina o si puede manejar stock directo.</span>
+                            </div>
 
                         </div>
                     </div>
@@ -254,7 +277,7 @@
 
         <div class="form-footer">
             {% if product %}
-                <button class="button button-ghost text-danger border-danger" type="submit" form="delete-product-form" data-confirm-title="Eliminar producto" data-confirm-message="Se intentará eliminar {{ product.nombre }}. Solo se puede si todavía no tiene ventas ni movimientos de inventario.">
+                <button class="button button-ghost text-danger border-danger" type="submit" form="delete-product-form" data-confirm-title="Eliminar producto" data-confirm-message="Se intentara eliminar {{ product.nombre }}. Solo se puede si todavia no tiene ventas ni movimientos de inventario.">
                     <i class="fa-solid fa-trash mr-2"></i> Eliminar
                 </button>
             {% else %}
@@ -278,4 +301,112 @@
     {% endif %}
 
 </div>
+{% endblock %}
+
+{% block scripts %}
+    {{ super() }}
+    <script>
+        (() => {
+            const categorySelect = document.querySelector("[data-category-select]");
+            const stockToggle = document.querySelector("[data-stock-toggle]");
+            const stockToggleRow = document.querySelector("[data-stock-toggle-row]");
+            const stockField = document.querySelector("[data-stock-field]");
+            const stockInput = document.querySelector("[data-stock-input]");
+            const stockHelp = document.querySelector("[data-stock-help]");
+            const priceGrid = document.querySelector("[data-price-grid]");
+            const kitchenExtraFields = document.querySelectorAll("[data-kitchen-extra]");
+            const flowNoteText = document.querySelector("[data-flow-note-text]");
+            const kitchenIndicator = document.querySelector("[data-kitchen-indicator]");
+            const kitchenLabel = document.querySelector("[data-kitchen-label]");
+            const kitchenDescription = document.querySelector("[data-kitchen-description]");
+            const kitchenStatusText = document.querySelector("[data-kitchen-status-text]");
+
+            if (!categorySelect || !stockToggle || !stockInput) {
+                return;
+            }
+
+            const initialStockValue = stockInput.value;
+            const defaultStockHelp = "Se usa como base para el control de inventario del producto.";
+            const disabledStockHelp = "Puedes dejarlo sin control si es un producto externo o si no deseas descontarlo automaticamente.";
+            const kitchenStockHelp = "No aplica para productos de cocina. Su control debe hacerse por insumos o ingredientes.";
+            const defaultFlowNote = "El flujo del producto se define por la categoria seleccionada.";
+            const salonFlowNote = "La categoria elegida permite entrega directa y puedes decidir si este producto lleva control de stock.";
+            const kitchenFlowNote = "La categoria elegida envia este producto a cocina y desactiva el control de stock del producto final.";
+
+            function syncProductMode() {
+                const selectedOption = categorySelect.options[categorySelect.selectedIndex];
+                const hasCategory = Boolean(selectedOption && selectedOption.value);
+                const isKitchen = selectedOption?.dataset?.enviaCocina === "true";
+
+                if (kitchenIndicator) {
+                    kitchenIndicator.checked = isKitchen;
+                }
+
+                if (isKitchen) {
+                    if (priceGrid) {
+                        priceGrid.classList.remove("two-up");
+                    }
+                    kitchenExtraFields.forEach((element) => {
+                        element.hidden = true;
+                    });
+                    stockToggle.checked = false;
+                    stockToggle.disabled = true;
+                    stockInput.value = 0;
+                    stockInput.disabled = true;
+                    stockHelp.textContent = kitchenStockHelp;
+                    flowNoteText.textContent = kitchenFlowNote;
+                    if (kitchenLabel) {
+                        kitchenLabel.textContent = "Pasa por cocina";
+                    }
+                    if (kitchenDescription) {
+                        kitchenDescription.textContent = "La categoria seleccionada manda este producto al flujo de cocina.";
+                    }
+                    if (kitchenStatusText) {
+                        kitchenStatusText.textContent = "Este producto no maneja stock del producto final y tampoco genera alertas de inventario.";
+                    }
+                    return;
+                }
+
+                if (priceGrid) {
+                    priceGrid.classList.add("two-up");
+                }
+                kitchenExtraFields.forEach((element) => {
+                    element.hidden = false;
+                });
+                stockToggle.disabled = false;
+                stockInput.disabled = !stockToggle.checked;
+                stockField.classList.toggle("opacity-70", !stockToggle.checked);
+                stockToggleRow.classList.remove("opacity-70");
+                stockHelp.textContent = stockToggle.checked ? defaultStockHelp : disabledStockHelp;
+
+                if (hasCategory && flowNoteText) {
+                    flowNoteText.textContent = salonFlowNote;
+                } else if (flowNoteText) {
+                    flowNoteText.textContent = defaultFlowNote;
+                }
+
+                if (kitchenLabel) {
+                    kitchenLabel.textContent = hasCategory ? "Entrega directa" : "Flujo operativo";
+                }
+                if (kitchenDescription) {
+                    kitchenDescription.textContent = hasCategory
+                        ? "La categoria seleccionada no pasa por cocina y puede manejar stock si aplica."
+                        : "La categoria seleccionada define si el producto pasa por cocina.";
+                }
+                if (kitchenStatusText) {
+                    kitchenStatusText.textContent = hasCategory
+                        ? "Este producto puede entregarse sin pasar por cocina. El control de stock queda a tu criterio."
+                        : "Selecciona una categoria para ver si el producto pasa por cocina o si puede manejar stock directo.";
+                }
+
+                if (stockToggle.checked && stockInput.value === "0" && initialStockValue && initialStockValue !== "0") {
+                    stockInput.value = initialStockValue;
+                }
+            }
+
+            categorySelect.addEventListener("change", syncProductMode);
+            stockToggle.addEventListener("change", syncProductMode);
+            syncProductMode();
+        })();
+    </script>
 {% endblock %}

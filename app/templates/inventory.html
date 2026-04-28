@@ -52,7 +52,7 @@
                                     <td class="font-bold text-sm">{{ product.nombre }}</td>
                                     <td>{{ product.categoria.nombre if product.categoria else '-' }}</td>
                                     <td>
-                                        {% if product.maneja_stock %}
+                                        {% if product.controla_stock %}
                                             <span class="{% if product.stock_actual <= 5 %}text-danger font-bold{% else %}font-medium{% endif %}">
                                                 {{ product.stock_actual }}
                                             </span>
@@ -61,7 +61,7 @@
                                         {% endif %}
                                     </td>
                                     <td>
-                                        {% if product.maneja_stock %}
+                                        {% if product.controla_stock %}
                                             <span class="badge badge-pagada">Activo</span>
                                         {% else %}
                                             <span class="badge badge-cancelada">Sin control</span>
@@ -122,7 +122,7 @@
                                     </td>
                                     <td class="font-medium">{{ movement.cantidad_unidades }}</td>
                                     <td>{{ movement.usuario.nombre_completo if movement.usuario else '-' }}</td>
-                                    <td class="text-xs text-muted">{{ movement.created_at|datetime_short }}</td>
+                                    <td class="text-xs text-muted" data-local-datetime="{{ movement.created_at|datetime_iso }}">{{ movement.created_at|datetime_short }}</td>
                                 </tr>
                             {% endfor %}
                         </tbody>
