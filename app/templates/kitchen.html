@@ -143,9 +143,9 @@
                                 </div>
                             {% endif %}
 
-                            <form method="post" action="{{ url_for('web.preparar_item', item_id=item.id) }}" data-confirm-title="Marcar item listo" data-confirm-message="El producto {{ item.producto.nombre if item.producto else 'seleccionado' }} pasara de pendiente a listo.">
+                            <form method="post" action="{{ url_for('web.preparar_item', item_id=item.id) }}" data-confirm-title="Marcar item listo" data-confirm-message="El producto {{ item.producto.nombre if item.producto else 'seleccionado' }} quedara listo y entregado en la orden.">
                                 <button class="button button-primary button-full kitchen-ticket-action" type="submit">
-                                    <i class="fa-solid fa-check mr-2"></i> Listo para entrega
+                                    <i class="fa-solid fa-check mr-2"></i> Marcar listo
                                 </button>
                             </form>
                         </article>

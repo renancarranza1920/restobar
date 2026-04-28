@@ -181,9 +181,9 @@
                         <p>${escapeHtml(item.notes)}</p>
                     </div>
                 ` : ""}
-                <form method="post" action="${escapeHtml(actionTemplate.replace("__ID__", String(item.id)))}" data-confirm-title="Marcar item listo" data-confirm-message="El producto ${escapeHtml(item.product)} pasara de pendiente a listo.">
+                <form method="post" action="${escapeHtml(actionTemplate.replace("__ID__", String(item.id)))}" data-confirm-title="Marcar item listo" data-confirm-message="El producto ${escapeHtml(item.product)} quedara listo y entregado en la orden.">
                     <button class="button button-primary button-full kitchen-ticket-action" type="submit">
-                        <i class="fa-solid fa-check mr-2"></i> Listo para entrega
+                        <i class="fa-solid fa-check mr-2"></i> Marcar listo
                     </button>
                 </form>
             </article>

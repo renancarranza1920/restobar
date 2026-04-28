@@ -875,6 +875,7 @@ def calculate_order_total(order):
 
 
 def sync_order(order):
+    normalize_item_delivery_states(order)
     order.total = calculate_order_total(order)
 
     if is_takeout_table(order.mesa):
@@ -913,6 +914,17 @@ def reset_divisiones_if_possible(order):
     return True, "La división de cuenta se reinició porque la orden cambió."
 
 
+def normalize_item_delivery_states(order):
+    changed = False
+    for item in order.items_activos:
+        if item.estado == "listo" or (
+            not item.requiere_cocina and item.estado == "pendiente"
+        ):
+            item.estado = "entregado"
+            changed = True
+    return changed
+
+
 def settle_order(order):
     sync_order(order)
 
@@ -947,7 +959,7 @@ def settle_order(order):
 
 
 def initial_item_status(producto):
-    return "pendiente" if producto.requiere_cocina else "listo"
+    return "pendiente" if producto.requiere_cocina else "entregado"
 
 
 def item_can_be_prepared(user, item):
@@ -962,7 +974,10 @@ def item_can_be_prepared(user, item):
 def item_can_be_delivered(user, item):
     if not user:
         return False
-    return item.estado == "listo" and user.rol in {"dueño", "mesero"}
+    return item.requiere_cocina and item.estado == "listo" and user.rol in {
+        "dueño",
+        "mesero",
+    }
 
 
 def order_can_receive_payment(user, order):

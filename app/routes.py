@@ -81,6 +81,7 @@ from .services import (
     initial_item_status,
     item_can_be_delivered,
     item_can_be_prepared,
+    normalize_item_delivery_states,
     order_can_receive_payment,
     parse_date_value,
     parse_decimal,
@@ -1214,6 +1215,10 @@ def detalle_orden(order_id):
         flash("La orden no existe.", "error")
         return redirect(url_for("web.ordenes"))
 
+    if normalize_item_delivery_states(order):
+        sync_order(order)
+        db.session.commit()
+
     requested_people = parse_int(request.args.get("personas"), 0)
     split_mode = bool(order.divisiones) or bool_from_form(request.args.get("split"))
     division_count = len(order.divisiones)
@@ -1288,16 +1293,50 @@ def agregar_item_orden(order_id):
         flash("No puedes agregar items porque la cuenta dividida ya empezo a cobrarse.", "error")
         return redirect(url_for("web.detalle_orden", order_id=order.id))
 
-    product_id = parse_int(request.form.get("product_id"))
-    quantity = parse_int(request.form.get("quantity"), 1)
-    notes = (request.form.get("notes") or "").strip()
+    product_ids = request.form.getlist("product_ids")
+    selected_lines = []
 
-    product = get_producto(product_id)
-    if product is None or not product.disponible:
-        flash("El producto elegido no esta disponible.", "error")
-        return redirect(url_for("web.detalle_orden", order_id=order.id))
-    if quantity <= 0:
-        flash("La cantidad debe ser mayor que cero.", "error")
+    if product_ids:
+        seen_product_ids = set()
+        for raw_product_id in product_ids:
+            product_id = parse_int(raw_product_id)
+            if product_id in seen_product_ids:
+                continue
+            seen_product_ids.add(product_id)
+
+            quantity = parse_int(request.form.get(f"quantity_{product_id}"), 0)
+            if quantity <= 0:
+                continue
+
+            product = get_producto(product_id)
+            if product is None or not product.disponible:
+                flash("Uno de los productos elegidos no esta disponible.", "error")
+                return redirect(url_for("web.detalle_orden", order_id=order.id))
+
+            selected_lines.append(
+                {
+                    "product": product,
+                    "quantity": quantity,
+                    "notes": (request.form.get(f"notes_{product_id}") or "").strip(),
+                }
+            )
+    else:
+        product_id = parse_int(request.form.get("product_id"))
+        quantity = parse_int(request.form.get("quantity"), 1)
+        notes = (request.form.get("notes") or "").strip()
+
+        product = get_producto(product_id)
+        if product is None or not product.disponible:
+            flash("El producto elegido no esta disponible.", "error")
+            return redirect(url_for("web.detalle_orden", order_id=order.id))
+        if quantity <= 0:
+            flash("La cantidad debe ser mayor que cero.", "error")
+            return redirect(url_for("web.detalle_orden", order_id=order.id))
+
+        selected_lines.append({"product": product, "quantity": quantity, "notes": notes})
+
+    if not selected_lines:
+        flash("Selecciona al menos un producto para agregar.", "error")
         return redirect(url_for("web.detalle_orden", order_id=order.id))
 
     changed, message = reset_divisiones_if_possible(order)
@@ -1306,21 +1345,29 @@ def agregar_item_orden(order_id):
         if not changed and order.divisiones:
             return redirect(url_for("web.detalle_orden", order_id=order.id))
 
-    item = OrdenItem(
-        orden=order,
-        producto=product,
-        cantidad=quantity,
-        precio_unitario=product.precio_venta,
-        costo_unitario=product.precio_costo,
-        notas=notes or None,
-        estado=initial_item_status(product),
-    )
-    db.session.add(item)
+    for line in selected_lines:
+        product = line["product"]
+        item = OrdenItem(
+            orden=order,
+            producto=product,
+            cantidad=line["quantity"],
+            precio_unitario=product.precio_venta,
+            costo_unitario=product.precio_costo,
+            notas=line["notes"] or None,
+            estado=initial_item_status(product),
+        )
+        db.session.add(item)
+
     db.session.flush()
     sync_order(order)
     db.session.commit()
 
-    flash(f"Se agrego {product.nombre} x{quantity}.", "success")
+    if len(selected_lines) == 1:
+        line = selected_lines[0]
+        flash(f"Se agrego {line['product'].nombre} x{line['quantity']}.", "success")
+    else:
+        total_units = sum(line["quantity"] for line in selected_lines)
+        flash(f"Se agregaron {len(selected_lines)} productos ({total_units} unidades).", "success")
     return redirect(url_for("web.detalle_orden", order_id=order.id))
 
 
@@ -1335,9 +1382,10 @@ def preparar_item(item_id):
         flash("Ese item no puede pasar a listo desde tu rol o estado actual.", "error")
         return redirect(request.referrer or url_for("web.cocina"))
 
-    item.estado = "listo"
+    item.estado = "entregado"
+    settle_order(item.orden)
     db.session.commit()
-    flash("El item quedo listo.", "success")
+    flash("El item quedo listo y entregado.", "success")
     return redirect(request.referrer or url_for("web.cocina"))
 
 
@@ -2095,6 +2143,10 @@ def api_orden_estado(order_id):
         order = get_order(order_id)
         if order is None:
             return jsonify({"status": "error", "message": "La orden no existe."}), 404
+
+        if normalize_item_delivery_states(order):
+            sync_order(order)
+            db.session.commit()
 
         requested_people = parse_int(request.args.get("personas"), 0)
         division_count = len(order.divisiones)

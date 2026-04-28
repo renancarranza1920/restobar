@@ -65,6 +65,111 @@
         </article>
     </section>
 
+    {% set product_groups = products|groupby("categoria.nombre") %}
+    <article class="panel mb-6 quick-order-panel" data-quick-order>
+        <div class="panel-header border-b bg-white quick-order-head">
+            <div>
+                <h2 class="panel-title font-bold text-primary">
+                    <i class="fa-solid fa-bolt mr-2"></i> Venta rapida
+                </h2>
+                <p class="text-sm text-muted mt-1">Toca + en cada producto y envia todo junto a la orden.</p>
+            </div>
+            <span class="badge bg-primary-light text-primary border border-primary">
+                {{ products|length }} productos
+            </span>
+        </div>
+
+        <form method="post" action="{{ url_for('web.agregar_item_orden', order_id=order.id) }}" data-quick-order-form>
+            <div class="quick-order-toolbar">
+                <label class="quick-search-field" for="quick-product-search">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input id="quick-product-search" type="search" placeholder="Buscar producto..." autocomplete="off" data-quick-search>
+                </label>
+
+                <div class="quick-category-tabs" role="tablist" aria-label="Categorias de productos">
+                    <button class="quick-category-tab is-active" type="button" data-category-filter="all">Todos</button>
+                    {% for category_name, category_products in product_groups %}
+                        <button class="quick-category-tab" type="button" data-category-filter="{{ category_name|lower }}">
+                            {{ category_name }}
+                        </button>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="quick-order-shell">
+                <div class="quick-order-catalog">
+                    {% if products %}
+                        {% for category_name, category_products in product_groups %}
+                            <section class="quick-order-category" data-category-section data-category="{{ category_name|lower }}">
+                                <div class="quick-category-title">
+                                    <div>
+                                        <strong>{{ category_name }}</strong>
+                                        <span>{{ category_products|length }} producto{{ '' if category_products|length == 1 else 's' }}</span>
+                                    </div>
+                                    <i class="fa-solid {{ 'fa-fire-burner' if category_products[0].requiere_cocina else 'fa-hand-holding-heart' }}"></i>
+                                </div>
+
+                                <div class="quick-product-grid">
+                                    {% for product in category_products %}
+                                        <article class="quick-product-card" data-product-card data-product-search="{{ (product.nombre ~ ' ' ~ category_name)|lower }}" data-product-price="{{ product.precio_venta }}">
+                                            <input type="hidden" name="product_ids" value="{{ product.id }}">
+
+                                            <div class="quick-product-media">
+                                                {% if product.imagen_url %}
+                                                    <img src="{{ product.imagen_url }}" alt="{{ product.nombre }}" loading="lazy">
+                                                {% else %}
+                                                    <div class="product-placeholder">{{ product.nombre[:1]|upper }}</div>
+                                                {% endif %}
+                                            </div>
+
+                                            <div class="quick-product-copy">
+                                                <strong>{{ product.nombre }}</strong>
+                                                <span>{{ product.precio_venta|money }}</span>
+                                            </div>
+
+                                            <div class="quick-product-controls" aria-label="Cantidad para {{ product.nombre }}">
+                                                <button class="quick-qty-button" type="button" data-qty-step="-1" aria-label="Quitar {{ product.nombre }}">
+                                                    <i class="fa-solid fa-minus"></i>
+                                                </button>
+                                                <input class="quick-qty-input" type="number" min="0" value="0" name="quantity_{{ product.id }}" data-qty-input data-price="{{ product.precio_venta }}" aria-label="Cantidad de {{ product.nombre }}">
+                                                <button class="quick-qty-button quick-qty-add" type="button" data-qty-step="1" aria-label="Agregar {{ product.nombre }}">
+                                                    <i class="fa-solid fa-plus"></i>
+                                                </button>
+                                            </div>
+
+                                            <input class="quick-note-input" name="notes_{{ product.id }}" placeholder="Nota: sin cebolla..." data-quick-note>
+                                        </article>
+                                    {% endfor %}
+                                </div>
+                            </section>
+                        {% endfor %}
+                    {% else %}
+                        <div class="empty-state p-8 text-center">
+                            <p class="text-sm text-muted">No hay productos disponibles para agregar.</p>
+                        </div>
+                    {% endif %}
+                </div>
+
+                <aside class="quick-order-summary">
+                    <div>
+                        <span class="text-xs text-muted uppercase tracking-wide">Seleccionado</span>
+                        <strong data-quick-total-items>0 items</strong>
+                    </div>
+                    <div>
+                        <span class="text-xs text-muted uppercase tracking-wide">Subtotal nuevo</span>
+                        <strong data-quick-total-money>$0.00</strong>
+                    </div>
+                    <button class="button button-primary button-full shadow-sm" type="submit" data-quick-submit {% if order.estado != 'abierta' %}data-order-locked="true" disabled{% endif %}>
+                        <i class="fa-solid fa-cart-plus mr-2"></i> Agregar seleccion
+                    </button>
+                    <button class="button button-ghost button-full button-small" type="button" data-quick-clear>
+                        <i class="fa-solid fa-eraser mr-2"></i> Limpiar
+                    </button>
+                </aside>
+            </div>
+        </form>
+    </article>
+
     <section class="filament-content-grid">
         <div class="filament-col">
             <article class="panel mb-6">
@@ -82,38 +187,6 @@
         </div>
 
         <div class="filament-col">
-            <article class="panel mb-6 shadow-md border-primary border-t-4">
-                <div class="panel-header border-b bg-white">
-                    <h2 class="panel-title font-bold text-primary"><i class="fa-solid fa-plus-circle mr-2"></i> Agregar item</h2>
-                </div>
-                <div class="panel-body p-5">
-                    <form class="form-stack" method="post" action="{{ url_for('web.agregar_item_orden', order_id=order.id) }}">
-                        <div class="mb-4">
-                            <label for="product_id" class="block text-sm font-bold text-gray-800 mb-2">Producto</label>
-                            <select id="product_id" name="product_id" class="w-full rounded shadow-sm border-gray-300 p-2 text-sm" required>
-                                {% for product in products %}
-                                    <option value="{{ product.id }}">{{ product.nombre }} | {{ product.precio_venta|money }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-
-                        <div class="mb-4">
-                            <label for="quantity" class="block text-sm font-bold text-gray-800 mb-2">Cantidad</label>
-                            <input id="quantity" name="quantity" type="number" min="1" value="1" class="w-full rounded shadow-sm border-gray-300 p-2" required>
-                        </div>
-
-                        <div class="mb-5">
-                            <label for="notes" class="block text-sm font-bold text-gray-800 mb-2">Notas cocina</label>
-                            <input id="notes" name="notes" class="w-full rounded shadow-sm border-gray-300 p-2 text-sm" placeholder="Ej: Sin cebolla, termino medio...">
-                        </div>
-
-                        <button class="button button-primary button-full hover-lift shadow-sm" type="submit" {% if order.estado != 'abierta' %}disabled{% endif %}>
-                            <i class="fa-solid fa-cart-plus mr-2"></i> Agregar a la orden
-                        </button>
-                    </form>
-                </div>
-            </article>
-
             <article class="panel mb-6">
                 <div class="panel-header border-b bg-gray-50">
                     <h2 class="panel-title font-bold"><i class="fa-solid fa-cash-register mr-2 text-success"></i> Pago de la mesa</h2>
@@ -155,4 +228,144 @@
 {% block scripts %}
     {{ super() }}
     <script src="{{ url_for('static', filename='order-live.js') }}"></script>
+    <script>
+        (function () {
+            const root = document.querySelector("[data-quick-order]");
+            if (!root) {
+                return;
+            }
+
+            const form = root.querySelector("[data-quick-order-form]");
+            const search = root.querySelector("[data-quick-search]");
+            const tabs = root.querySelectorAll("[data-category-filter]");
+            const sections = root.querySelectorAll("[data-category-section]");
+            const cards = root.querySelectorAll("[data-product-card]");
+            const totalItems = root.querySelector("[data-quick-total-items]");
+            const totalMoney = root.querySelector("[data-quick-total-money]");
+            const submit = root.querySelector("[data-quick-submit]");
+            const orderLocked = submit?.dataset.orderLocked === "true";
+            let activeCategory = "all";
+
+            const moneyFormatter = new Intl.NumberFormat(navigator.language || "es-SV", {
+                style: "currency",
+                currency: "USD",
+            });
+
+            function cleanQuantity(value) {
+                const nextValue = Number.parseInt(value, 10);
+                if (Number.isNaN(nextValue) || nextValue < 0) {
+                    return 0;
+                }
+                return nextValue;
+            }
+
+            function updateSummary() {
+                let units = 0;
+                let amount = 0;
+
+                cards.forEach((card) => {
+                    const input = card.querySelector("[data-qty-input]");
+                    const quantity = cleanQuantity(input?.value);
+                    const price = Number.parseFloat(input?.dataset.price || "0") || 0;
+
+                    if (input) {
+                        input.value = quantity;
+                    }
+                    card.classList.toggle("is-selected", quantity > 0);
+                    units += quantity;
+                    amount += quantity * price;
+                });
+
+                if (totalItems) {
+                    totalItems.textContent = `${units} item${units === 1 ? "" : "s"}`;
+                }
+                if (totalMoney) {
+                    totalMoney.textContent = moneyFormatter.format(amount);
+                }
+                if (submit && !orderLocked) {
+                    submit.disabled = units === 0;
+                }
+            }
+
+            function applyFilters() {
+                const query = (search?.value || "").trim().toLowerCase();
+
+                sections.forEach((section) => {
+                    const sectionMatches = activeCategory === "all" || section.dataset.category === activeCategory;
+                    let visibleCards = 0;
+
+                    section.querySelectorAll("[data-product-card]").forEach((card) => {
+                        const cardMatches = !query || (card.dataset.productSearch || "").includes(query);
+                        const isVisible = sectionMatches && cardMatches;
+                        card.hidden = !isVisible;
+                        if (isVisible) {
+                            visibleCards += 1;
+                        }
+                    });
+
+                    section.hidden = visibleCards === 0;
+                });
+            }
+
+            root.addEventListener("click", (event) => {
+                const tab = event.target.closest("[data-category-filter]");
+                if (tab) {
+                    activeCategory = tab.dataset.categoryFilter || "all";
+                    tabs.forEach((item) => item.classList.toggle("is-active", item === tab));
+                    applyFilters();
+                    return;
+                }
+
+                const stepButton = event.target.closest("[data-qty-step]");
+                if (stepButton) {
+                    const card = stepButton.closest("[data-product-card]");
+                    const input = card?.querySelector("[data-qty-input]");
+                    if (!input) {
+                        return;
+                    }
+                    input.value = cleanQuantity(input.value) + Number(stepButton.dataset.qtyStep || 0);
+                    updateSummary();
+                }
+
+                if (event.target.closest("[data-quick-clear]")) {
+                    cards.forEach((card) => {
+                        const quantity = card.querySelector("[data-qty-input]");
+                        const note = card.querySelector("[data-quick-note]");
+                        if (quantity) {
+                            quantity.value = 0;
+                        }
+                        if (note) {
+                            note.value = "";
+                        }
+                    });
+                    updateSummary();
+                    search?.focus();
+                }
+            });
+
+            root.addEventListener("input", (event) => {
+                if (event.target.matches("[data-qty-input]")) {
+                    updateSummary();
+                    return;
+                }
+                if (event.target.matches("[data-quick-search]")) {
+                    applyFilters();
+                }
+            });
+
+            form?.addEventListener("submit", (event) => {
+                const selectedUnits = Array.from(root.querySelectorAll("[data-qty-input]")).reduce(
+                    (total, input) => total + cleanQuantity(input.value),
+                    0
+                );
+                if (selectedUnits === 0) {
+                    event.preventDefault();
+                    search?.focus();
+                }
+            });
+
+            applyFilters();
+            updateSummary();
+        })();
+    </script>
 {% endblock %}
