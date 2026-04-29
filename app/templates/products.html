@@ -66,7 +66,7 @@
                                     </div>
 
                                     <span class="badge {{ 'badge-pagada' if product.disponible else 'badge-cancelada' }}">
-                                        {{ 'Disponible' if product.disponible else 'Oculto' }}
+                                        {{ 'Disponible' if product.disponible else 'Agotado' }}
                                     </span>
                                 </div>
 
@@ -79,14 +79,22 @@
                                         <span>Stock</span>
                                         <strong>{{ product.stock_actual if product.controla_stock else 'No aplica' }}</strong>
                                     </div>
-                                    <div>
-                                        <span>Flujo</span>
-                                        <strong>{{ 'Cocina' if product.requiere_cocina else 'Salón' }}</strong>
-                                    </div>
                                 </div>
                             </div>
 
                             <div class="entity-actions">
+                                <form method="post" action="{{ url_for('web.alternar_disponibilidad_producto', product_id=product.id) }}">
+                                    <input type="hidden" name="q" value="{{ search or '' }}">
+                                    <button
+                                        class="button {{ 'button-ghost text-danger border-danger' if product.disponible else 'button-success' }} button-small"
+                                        type="submit"
+                                        data-confirm-title="{{ 'Marcar como agotado' if product.disponible else 'Marcar disponible' }}"
+                                        data-confirm-message="{{ 'El producto dejara de aparecer para venta.' if product.disponible else 'El producto volvera a estar disponible para venta.' }}"
+                                    >
+                                        <i class="fa-solid {{ 'fa-circle-xmark' if product.disponible else 'fa-circle-check' }} mr-1"></i>
+                                        {{ 'Agotar' if product.disponible else 'Disponible' }}
+                                    </button>
+                                </form>
                                 <a class="button button-secondary button-small" href="{{ url_for('web.editar_producto', product_id=product.id) }}">
                                     <i class="fa-solid fa-pen mr-1"></i> Editar
                                 </a>

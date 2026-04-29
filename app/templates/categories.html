@@ -8,7 +8,7 @@
             <h1 class="text-2xl font-bold text-gray-800">
                 <i class="fa-solid fa-tags mr-2 text-muted"></i> Categorias
             </h1>
-            <p class="text-sm text-muted mt-1">Organiza productos y define si cada grupo pasa por cocina o sale directo al salon.</p>
+            <p class="text-sm text-muted mt-1">Organiza productos y define si cada grupo pasa por cocina.</p>
         </div>
 
         <div class="page-actions">
@@ -27,7 +27,7 @@
                 <h2 class="panel-title font-bold">
                     <i class="fa-solid fa-layer-group mr-2 text-muted"></i> Categorias registradas
                 </h2>
-                <p class="text-sm text-muted mt-1">Cada categoria define flujo operativo y mantiene el catalogo ordenado.</p>
+                <p class="text-sm text-muted mt-1">Cada categoria define si sus productos pasan por cocina y mantiene el catalogo ordenado.</p>
             </div>
         </div>
 
@@ -46,7 +46,7 @@
                                     </div>
 
                                     <span class="badge {{ 'badge-pagada' if category.envia_a_cocina else 'bg-primary-light text-primary' }}">
-                                        {{ 'Cocina' if category.envia_a_cocina else 'Salon' }}
+                                        {{ 'Cocina' if category.envia_a_cocina else 'Directo' }}
                                     </span>
                                 </div>
 

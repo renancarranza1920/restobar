@@ -74,7 +74,7 @@
                             {% endif %}
                             <div class="inline-alert inline-alert-info inline-alert-compact mt-3">
                                 <i class="fa-solid fa-circle-info mr-2"></i>
-                                <span data-flow-note-text>El flujo del producto se define por la categoria seleccionada.</span>
+                                <span data-flow-note-text>La categoria define si el producto pasa por cocina.</span>
                             </div>
                         </div>
 
@@ -230,7 +230,7 @@
                                 >
                                 <div>
                                     <span class="block text-sm font-bold text-gray-800">Disponible para venta</span>
-                                    <span class="block text-xs text-muted mt-1">Si se desmarca, el producto se oculta del catalogo.</span>
+                                    <span class="block text-xs text-muted mt-1">Si se desmarca, el producto queda agotado y no aparece para venta.</span>
                                 </div>
                             </label>
 
@@ -257,7 +257,7 @@
                                     disabled
                                 >
                                 <div>
-                                    <span class="block text-sm font-bold text-gray-800" data-kitchen-label>Flujo operativo</span>
+                                    <span class="block text-sm font-bold text-gray-800" data-kitchen-label>Pasa por cocina</span>
                                     <span class="block text-xs text-muted mt-1" data-kitchen-description>La categoria seleccionada define si el producto pasa por cocina.</span>
                                 </div>
                             </label>
@@ -329,8 +329,8 @@
             const defaultStockHelp = "Se usa como base para el control de inventario del producto.";
             const disabledStockHelp = "Puedes dejarlo sin control si es un producto externo o si no deseas descontarlo automaticamente.";
             const kitchenStockHelp = "No aplica para productos de cocina. Su control debe hacerse por insumos o ingredientes.";
-            const defaultFlowNote = "El flujo del producto se define por la categoria seleccionada.";
-            const salonFlowNote = "La categoria elegida permite entrega directa y puedes decidir si este producto lleva control de stock.";
+            const defaultFlowNote = "La categoria define si el producto pasa por cocina.";
+            const directFlowNote = "La categoria elegida permite entrega directa y puedes decidir si este producto lleva control de stock.";
             const kitchenFlowNote = "La categoria elegida envia este producto a cocina y desactiva el control de stock del producto final.";
 
             function syncProductMode() {
@@ -359,7 +359,7 @@
                         kitchenLabel.textContent = "Pasa por cocina";
                     }
                     if (kitchenDescription) {
-                        kitchenDescription.textContent = "La categoria seleccionada manda este producto al flujo de cocina.";
+                        kitchenDescription.textContent = "La categoria seleccionada manda este producto a cocina.";
                     }
                     if (kitchenStatusText) {
                         kitchenStatusText.textContent = "Este producto no maneja stock del producto final y tampoco genera alertas de inventario.";
@@ -380,13 +380,13 @@
                 stockHelp.textContent = stockToggle.checked ? defaultStockHelp : disabledStockHelp;
 
                 if (hasCategory && flowNoteText) {
-                    flowNoteText.textContent = salonFlowNote;
+                    flowNoteText.textContent = directFlowNote;
                 } else if (flowNoteText) {
                     flowNoteText.textContent = defaultFlowNote;
                 }
 
                 if (kitchenLabel) {
-                    kitchenLabel.textContent = hasCategory ? "Entrega directa" : "Flujo operativo";
+                    kitchenLabel.textContent = hasCategory ? "Entrega directa" : "Pasa por cocina";
                 }
                 if (kitchenDescription) {
                     kitchenDescription.textContent = hasCategory

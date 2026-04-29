@@ -22,6 +22,7 @@
 
     <section class="filament-stats-grid mb-6">
         
+        {% if user_can(current_user, 'ordenes.view') %}
         <article class="stat-card panel hover-lift">
             <div class="stat-header">
                 <div class="stat-icon bg-success-light text-success">
@@ -34,7 +35,9 @@
                 <i class="fa-solid fa-arrow-trend-up"></i> Total registradas hoy
             </p>
         </article>
+        {% endif %}
 
+        {% if user_can(current_user, 'cocina.view') or user_can(current_user, 'ordenes.deliver') %}
         <article class="stat-card panel hover-lift">
             <div class="stat-header">
                 <div class="stat-icon bg-warning-light text-warning">
@@ -47,7 +50,9 @@
                 <i class="fa-solid fa-clock"></i> Cocina / Servicio
             </p>
         </article>
+        {% endif %}
 
+        {% if user_can(current_user, 'caja.view') or user_can(current_user, 'reportes.view') %}
         <article class="stat-card panel hover-lift">
             <div class="stat-header">
                 <div class="stat-icon bg-primary-light text-primary">
@@ -60,7 +65,9 @@
                 <i class="fa-solid fa-chart-line"></i> Totales cobrados
             </p>
         </article>
+        {% endif %}
 
+        {% if user_can(current_user, 'mesas.view') %}
         <article class="stat-card panel hover-lift">
             <div class="stat-header">
                 <div class="stat-icon bg-gray-light text-muted">
@@ -73,12 +80,14 @@
                 Mesas en uso actualmente
             </p>
         </article>
+        {% endif %}
 
     </section>
 
     <section class="filament-content-grid">
         
         <div class="filament-col">
+            {% if user_can(current_user, 'ordenes.view') %}
             <article class="panel mb-6">
                 <div class="panel-header border-b bg-gray-50">
                     <h3 class="panel-title font-bold"><i class="fa-solid fa-list-check mr-2"></i> Operación Reciente</h3>
@@ -123,7 +132,9 @@
                     {% endif %}
                 </div>
             </article>
+            {% endif %}
 
+            {% if user_can(current_user, 'reportes.view') or user_can(current_user, 'productos.view') %}
             <article class="panel">
                 <div class="panel-header border-b bg-gray-50">
                     <h3 class="panel-title font-bold"><i class="fa-solid fa-ranking-star mr-2"></i> Lo más vendido hoy</h3>
@@ -153,9 +164,11 @@
                     {% endif %}
                 </div>
             </article>
+            {% endif %}
         </div>
 
         <div class="filament-col">
+            {% if user_can(current_user, 'caja.view') or user_can(current_user, 'reportes.view') %}
             <article class="panel mb-6">
                 <div class="panel-header border-b bg-gray-50">
                     <h3 class="panel-title font-bold"><i class="fa-solid fa-cash-register mr-2"></i> Últimos Pagos</h3>
@@ -180,8 +193,9 @@
                     {% endif %}
                 </div>
             </article>
+            {% endif %}
 
-            {% if metrics.low_stock_products and user_can(current_user, 'inventario') %}
+            {% if metrics.low_stock_products and user_can(current_user, 'inventario.view') %}
                 <article class="panel border-danger shadow-danger">
                     <div class="panel-header border-b bg-danger-light">
                         <h3 class="panel-title text-danger font-bold flex items-center gap-2">

@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="filament-dashboard p-4 md:p-6">
+    <header class="page-header">
+        <div>
+            <p class="text-xs font-bold text-primary uppercase tracking-wide mb-1">Auditoria</p>
+            <h1 class="text-2xl font-bold text-gray-800">
+                <i class="fa-solid fa-clock-rotate-left mr-2 text-muted"></i> Actividad del sistema
+            </h1>
+            <p class="text-sm text-muted mt-1">Ultimos cambios importantes realizados por los usuarios.</p>
+        </div>
+    </header>
+
+    <article class="panel">
+        <div class="panel-header border-b bg-gray-50">
+            <div>
+                <h2 class="panel-title font-bold">Registro reciente</h2>
+                <p class="text-sm text-muted mt-1">Se muestran hasta 200 eventos.</p>
+            </div>
+        </div>
+
+        <div class="panel-body p-0">
+            {% if logs %}
+                <div class="table-wrap no-border">
+                    <table class="filament-table">
+                        <thead>
+                            <tr>
+                                <th>Fecha</th>
+                                <th>Usuario</th>
+                                <th>Accion</th>
+                                <th>Entidad</th>
+                                <th>Resumen</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for log in logs %}
+                                <tr class="hover-row">
+                                    <td class="text-xs text-muted">
+                                        <span data-local-datetime="{{ log.created_at|datetime_iso }}">{{ log.created_at|datetime_short }}</span>
+                                    </td>
+                                    <td class="text-sm font-bold">{{ log.usuario.nombre_completo if log.usuario else 'Sistema' }}</td>
+                                    <td><span class="badge bg-white border border-gray-200 text-muted">{{ log.accion }}</span></td>
+                                    <td class="text-sm">{{ log.entidad }}{% if log.entidad_id %} #{{ log.entidad_id }}{% endif %}</td>
+                                    <td class="text-sm text-muted">{{ log.resumen or '-' }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="empty-state p-8 text-center">
+                    <div class="empty-icon bg-gray-light text-muted mx-auto mb-3">
+                        <i class="fa-solid fa-clipboard-list text-2xl"></i>
+                    </div>
+                    <p class="text-sm font-medium text-muted">Todavia no hay eventos de auditoria.</p>
+                </div>
+            {% endif %}
+        </div>
+    </article>
+</div>
+{% endblock %}

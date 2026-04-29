@@ -9,6 +9,8 @@
         : [];
     const sidebar = document.querySelector("[data-sidebar]");
     const sidebarBackdrop = document.querySelector("[data-sidebar-backdrop]");
+    const sidebarCollapseToggle = document.querySelector("[data-sidebar-collapse-toggle]");
+    const sidebarCollapsedKey = "restobar:sidebar-collapsed";
 
     let pendingConfirmAction = null;
 
@@ -136,6 +138,10 @@
         return navigator.language || "es-SV";
     }
 
+    function localTimeZone() {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone;
+    }
+
     function parseUtcDate(rawValue) {
         if (!rawValue) {
             return null;
@@ -155,6 +161,7 @@
 
         if (mode === "date") {
             return dateValue.toLocaleDateString(localDateLocale(), {
+                timeZone: localTimeZone(),
                 year: "numeric",
                 month: "2-digit",
                 day: "2-digit",
@@ -163,6 +170,7 @@
 
         if (mode === "time") {
             return dateValue.toLocaleTimeString(localDateLocale(), {
+                timeZone: localTimeZone(),
                 hour: "numeric",
                 minute: "2-digit",
                 second: "2-digit",
@@ -170,6 +178,7 @@
         }
 
         return dateValue.toLocaleString(localDateLocale(), {
+            timeZone: localTimeZone(),
             year: "numeric",
             month: "2-digit",
             day: "2-digit",
@@ -191,12 +200,18 @@
 
         document.querySelectorAll("[data-local-current-date]").forEach((node) => {
             node.textContent = new Date().toLocaleDateString(localDateLocale(), {
+                timeZone: localTimeZone(),
                 year: "numeric",
                 month: "2-digit",
                 day: "2-digit",
             });
         });
     }
+
+    window.RestobarDates = {
+        formatLocalDate,
+        renderLocalDateNodes,
+    };
 
     function closeConfirmModal() {
         if (!confirmModal) {
@@ -500,9 +515,59 @@
         }
     }
 
+    function isDesktopSidebar() {
+        return window.innerWidth > 1024;
+    }
+
+    function readSidebarCollapsedPreference() {
+        try {
+            return window.localStorage.getItem(sidebarCollapsedKey) === "true";
+        } catch (error) {
+            return false;
+        }
+    }
+
+    function writeSidebarCollapsedPreference(isCollapsed) {
+        try {
+            window.localStorage.setItem(sidebarCollapsedKey, isCollapsed ? "true" : "false");
+        } catch (error) {
+            // Ignore storage restrictions.
+        }
+    }
+
+    function syncSidebarCollapseButton(isCollapsed) {
+        if (!sidebarCollapseToggle) {
+            return;
+        }
+
+        const label = isCollapsed ? "Mostrar menu" : "Ocultar menu";
+        const icon = sidebarCollapseToggle.querySelector("i");
+        const text = sidebarCollapseToggle.querySelector("span");
+
+        sidebarCollapseToggle.setAttribute("aria-label", label);
+        sidebarCollapseToggle.setAttribute("title", label);
+        if (icon) {
+            icon.className = `fa-solid ${isCollapsed ? "fa-chevron-right" : "fa-chevron-left"}`;
+        }
+        if (text) {
+            text.textContent = label;
+        }
+    }
+
+    function setSidebarCollapsed(isCollapsed, persist = true) {
+        document.body.classList.toggle("sidebar-collapsed", Boolean(isCollapsed));
+        syncSidebarCollapseButton(Boolean(isCollapsed));
+        if (persist) {
+            writeSidebarCollapsedPreference(Boolean(isCollapsed));
+        }
+    }
+
+    setSidebarCollapsed(readSidebarCollapsedPreference(), false);
+
     restoreScrollPosition();
     wireFlashMessages();
     renderLocalDateNodes();
+    window.setInterval(renderLocalDateNodes, 60000);
     wireSplitWorkspace();
 
     document.addEventListener("click", (event) => {
@@ -518,6 +583,12 @@
         }
 
         if (event.target.closest("[data-sidebar-close]") || event.target.closest("[data-sidebar-backdrop]")) {
+            closeSidebar();
+            return;
+        }
+
+        if (event.target.closest("[data-sidebar-collapse-toggle]")) {
+            setSidebarCollapsed(!document.body.classList.contains("sidebar-collapsed"));
             closeSidebar();
             return;
         }
@@ -605,6 +676,9 @@
     window.addEventListener("resize", () => {
         if (window.innerWidth > 1024) {
             closeSidebar();
+        }
+        if (!isDesktopSidebar()) {
+            syncSidebarCollapseButton(document.body.classList.contains("sidebar-collapsed"));
         }
     });
 

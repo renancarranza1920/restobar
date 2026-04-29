@@ -1,4 +1,5 @@
 import csv
+import re
 from datetime import date, datetime
 from io import BytesIO, StringIO
 from pathlib import Path
@@ -35,6 +36,7 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 
 from .extensions import db
 from .models import (
+    AuditLog,
     Categoria,
     Mesa,
     MovimientoCaja,
@@ -44,12 +46,15 @@ from .models import (
     OrdenItem,
     Pago,
     Producto,
+    Rol,
     SesionCaja,
     Usuario,
     Zona,
 )
 from .services import (
+    ADMIN_ROLE_CODE,
     add_or_increment_order_item,
+    audit_event,
     bool_from_form,
     build_split_matrix,
     clear_divisiones,
@@ -58,6 +63,8 @@ from .services import (
     default_theme,
     division_can_receive_payment,
     feature_required,
+    feature_definitions,
+    permission_definitions,
     get_active_cash_session,
     get_active_order_for_mesa,
     get_categorias,
@@ -71,6 +78,8 @@ from .services import (
     get_orders_for_range,
     get_payments_for_range,
     get_pending_kitchen_items,
+    get_role,
+    get_roles,
     get_producto,
     get_productos,
     get_report_snapshot,
@@ -82,6 +91,8 @@ from .services import (
     grouped_tables,
     item_can_be_delivered,
     item_can_be_prepared,
+    local_now,
+    localize_datetime,
     normalize_item_delivery_states,
     order_can_receive_payment,
     parse_date_value,
@@ -90,7 +101,6 @@ from .services import (
     recent_cash_movements,
     recent_inventory_movements,
     reset_divisiones_if_possible,
-    roles_required,
     save_split_configuration,
     serialize_kitchen_item,
     session_card_total,
@@ -100,6 +110,7 @@ from .services import (
     sync_order,
     theme_choices,
     user_can,
+    valid_role_code,
     validate_split_assignment,
 )
 
@@ -440,7 +451,7 @@ def build_pdf_response(filename, start_date, end_date, report):
         table.setStyle(TableStyle(commands))
         return table
 
-    generated_at = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    generated_at = local_now().strftime("%Y-%m-%d %H:%M")
 
     story = [
         Paragraph("Restobar", title_style),
@@ -536,8 +547,19 @@ def build_pdf_response(filename, start_date, end_date, report):
 
 def allow_ticket_access():
     return current_user.is_authenticated and (
-        user_can(current_user, "ordenes") or user_can(current_user, "cocina")
+        user_can(current_user, "ordenes.ticket") or user_can(current_user, "cocina.view")
     )
+
+
+def normalize_role_code(value):
+    cleaned = re.sub(r"[^a-z0-9]+", "_", (value or "").strip().lower())
+    return cleaned.strip("_")
+
+
+def local_datetime_label(value):
+    if not value:
+        return ""
+    return localize_datetime(value).strftime("%Y-%m-%d %H:%M")
 
 
 @web_bp.get("/")
@@ -550,7 +572,11 @@ def home():
 def login():
     reauth = current_user.is_authenticated and not login_fresh()
     if current_user.is_authenticated and not reauth:
-        return redirect(url_for(default_endpoint_for_user(current_user)))
+        default_endpoint = default_endpoint_for_user(current_user)
+        if default_endpoint != "web.login":
+            return redirect(url_for(default_endpoint))
+        logout_user()
+        flash("Tu rol no tiene permisos activos. Inicia sesion con un administrador.", "error")
     return render_template(
         "login.html",
         page_title="Confirmar sesion" if reauth else "Iniciar sesion",
@@ -611,7 +637,51 @@ def login_submit():
 
     from .services import next_url_or_default
 
-    return redirect(next_url_or_default(default_endpoint_for_user(user)))
+    default_endpoint = default_endpoint_for_user(user)
+    if default_endpoint == "web.login":
+        logout_user()
+        flash("Ese usuario no tiene permisos activos. Revisa su rol desde un administrador.", "error")
+        return redirect(url_for("web.login"))
+
+    if user.must_change_password and not reauth:
+        flash("Actualiza tu contrasena para continuar.", "info")
+        return redirect(url_for("web.mi_seguridad"))
+
+    return redirect(next_url_or_default(default_endpoint))
+
+
+@web_bp.get("/perfil/seguridad")
+@login_required
+def mi_seguridad():
+    return render_template("profile_security.html", page_title="Mi seguridad")
+
+
+@web_bp.post("/perfil/seguridad")
+@login_required
+def actualizar_mi_password():
+    current_password = request.form.get("current_password") or ""
+    new_password = request.form.get("new_password") or ""
+    confirm_password = request.form.get("confirm_password") or ""
+
+    errors = []
+    if not current_user.check_password(current_password):
+        errors.append("Tu contrasena actual no coincide.")
+    if len(new_password) < 6:
+        errors.append("La nueva contrasena debe tener al menos 6 caracteres.")
+    if new_password != confirm_password:
+        errors.append("La confirmacion no coincide.")
+
+    if errors:
+        flash_form_errors(errors)
+        return redirect(url_for("web.mi_seguridad"))
+
+    current_user.set_password(new_password)
+    current_user.must_change_password = False
+    audit_event("cambiar_password", "usuario", current_user.id, "El usuario cambio su propia contrasena.")
+    db.session.commit()
+
+    flash("Tu contrasena fue actualizada.", "success")
+    return redirect(url_for(default_endpoint_for_user(current_user)))
 
 
 @web_bp.post("/logout")
@@ -637,14 +707,14 @@ def cambiar_tema():
 
 
 @web_bp.get("/dashboard")
-@feature_required("dashboard")
+@feature_required("dashboard.view")
 def dashboard():
     snapshot = get_dashboard_snapshot()
     return render_template("dashboard.html", page_title="Inicio", **snapshot)
 
 
 @web_bp.get("/zonas")
-@roles_required("dueño")
+@feature_required("zonas.view")
 def zonas():
     return render_template(
         "zones.html",
@@ -654,13 +724,13 @@ def zonas():
 
 
 @web_bp.get("/zonas/nueva")
-@roles_required("dueño")
+@feature_required("zonas.create")
 def nueva_zona():
     return render_template("zone_form.html", page_title="Nueva zona", zone=None)
 
 
 @web_bp.get("/zonas/<int:zone_id>/editar")
-@roles_required("dueño")
+@feature_required("zonas.edit")
 def editar_zona(zone_id):
     zone = get_zona(zone_id)
     if zone is None:
@@ -670,7 +740,7 @@ def editar_zona(zone_id):
 
 
 @web_bp.post("/zonas")
-@roles_required("dueño")
+@feature_required("zonas.create")
 def crear_zona():
     nombre = (request.form.get("nombre") or "").strip()
     if not nombre:
@@ -684,13 +754,14 @@ def crear_zona():
 
     zone = Zona(nombre=nombre)
     db.session.add(zone)
+    audit_event("crear", "zona", None, f"Se creo la zona {nombre}.")
     db.session.commit()
     flash(f"Se creó la zona {zone.nombre}.", "success")
     return redirect(url_for("web.zonas"))
 
 
 @web_bp.post("/zonas/<int:zone_id>")
-@roles_required("dueño")
+@feature_required("zonas.edit")
 def actualizar_zona(zone_id):
     zone = get_zona(zone_id)
     if zone is None:
@@ -711,13 +782,14 @@ def actualizar_zona(zone_id):
         return redirect(url_for("web.editar_zona", zone_id=zone.id))
 
     zone.nombre = nombre
+    audit_event("actualizar", "zona", zone.id, f"Se actualizo la zona {zone.nombre}.")
     db.session.commit()
     flash(f"Se actualizó la zona {zone.nombre}.", "success")
     return redirect(url_for("web.zonas"))
 
 
 @web_bp.post("/zonas/<int:zone_id>/eliminar")
-@roles_required("dueño")
+@feature_required("zonas.delete")
 def eliminar_zona(zone_id):
     zone = get_zona(zone_id)
     if zone is None:
@@ -729,13 +801,14 @@ def eliminar_zona(zone_id):
 
     zone_name = zone.nombre
     db.session.delete(zone)
+    audit_event("eliminar", "zona", zone_id, f"Se elimino la zona {zone_name}.")
     db.session.commit()
     flash(f"La zona {zone_name} fue eliminada.", "success")
     return redirect(url_for("web.zonas"))
 
 
 @web_bp.get("/categorias")
-@feature_required("categorias")
+@feature_required("categorias.view")
 def categorias():
     return render_template(
         "categories.html",
@@ -745,7 +818,7 @@ def categorias():
 
 
 @web_bp.get("/categorias/nueva")
-@feature_required("categorias")
+@feature_required("categorias.create")
 def nueva_categoria():
     return render_template(
         "category_form.html",
@@ -755,7 +828,7 @@ def nueva_categoria():
 
 
 @web_bp.get("/categorias/<int:category_id>/editar")
-@feature_required("categorias")
+@feature_required("categorias.edit")
 def editar_categoria(category_id):
     category = db.session.get(Categoria, category_id)
     if category is None:
@@ -769,7 +842,7 @@ def editar_categoria(category_id):
 
 
 @web_bp.post("/categorias")
-@feature_required("categorias")
+@feature_required("categorias.create")
 def crear_categoria():
     nombre = (request.form.get("nombre") or "").strip()
     envia_a_cocina = bool_from_form(request.form.get("envia_a_cocina"))
@@ -785,13 +858,14 @@ def crear_categoria():
 
     category = Categoria(nombre=nombre, envia_a_cocina=envia_a_cocina)
     db.session.add(category)
+    audit_event("crear", "categoria", None, f"Se creo la categoria {nombre}.")
     db.session.commit()
     flash(f"Se creo la categoria {category.nombre}.", "success")
     return redirect(url_for("web.categorias"))
 
 
 @web_bp.post("/categorias/<int:category_id>")
-@feature_required("categorias")
+@feature_required("categorias.edit")
 def actualizar_categoria(category_id):
     category = db.session.get(Categoria, category_id)
     if category is None:
@@ -817,13 +891,14 @@ def actualizar_categoria(category_id):
 
     category.nombre = nombre
     category.envia_a_cocina = envia_a_cocina
+    audit_event("actualizar", "categoria", category.id, f"Se actualizo la categoria {category.nombre}.")
     db.session.commit()
     flash(f"Se actualizo la categoria {category.nombre}.", "success")
     return redirect(url_for("web.categorias"))
 
 
 @web_bp.post("/categorias/<int:category_id>/eliminar")
-@feature_required("categorias")
+@feature_required("categorias.delete")
 def eliminar_categoria(category_id):
     category = db.session.get(Categoria, category_id)
     if category is None:
@@ -838,6 +913,7 @@ def eliminar_categoria(category_id):
 
     category_name = category.nombre
     db.session.delete(category)
+    audit_event("eliminar", "categoria", category_id, f"Se elimino la categoria {category_name}.")
     db.session.commit()
     flash(f"La categoria {category_name} fue eliminada.", "success")
     return redirect(url_for("web.categorias"))
@@ -845,33 +921,213 @@ def eliminar_categoria(category_id):
 
 @web_bp.get("/usuarios")
 @fresh_login_required
-@feature_required("usuarios")
+@feature_required("usuarios.view")
 def usuarios():
     users = Usuario.query.order_by(Usuario.activo.desc(), Usuario.nombre.asc()).all()
-    return render_template("users.html", page_title="Usuarios", users=users)
+    return render_template(
+        "users.html",
+        page_title="Usuarios",
+        users=users,
+        roles=get_roles(),
+    )
+
+
+@web_bp.get("/roles")
+@fresh_login_required
+@feature_required("roles.view")
+def roles():
+    roles_list = get_roles()
+    users_by_role = {
+        role.codigo: Usuario.query.filter_by(rol=role.codigo).count()
+        for role in roles_list
+    }
+    return render_template(
+        "roles.html",
+        page_title="Roles",
+        roles=roles_list,
+        features=permission_definitions(),
+        users_by_role=users_by_role,
+    )
+
+
+@web_bp.get("/roles/nuevo")
+@fresh_login_required
+@feature_required("roles.create")
+def nuevo_rol():
+    role = Rol(codigo="", nombre="", descripcion="")
+    role.permisos = set()
+    return render_template(
+        "role_form.html",
+        page_title="Nuevo rol",
+        role=role,
+        features=permission_definitions(),
+        is_new_role=True,
+    )
+
+
+@web_bp.post("/roles")
+@fresh_login_required
+@feature_required("roles.create")
+def crear_rol():
+    nombre = (request.form.get("nombre") or "").strip()
+    codigo = normalize_role_code(request.form.get("codigo") or nombre)
+    descripcion = (request.form.get("descripcion") or "").strip()
+    selected_permissions = set(request.form.getlist("permisos"))
+    valid_permissions = {permission["key"] for permission in permission_definitions()}
+
+    errors = []
+    if not nombre:
+        errors.append("El rol necesita un nombre.")
+    if not codigo:
+        errors.append("El rol necesita un codigo valido.")
+    if len(codigo) > 30:
+        errors.append("El codigo del rol no puede superar 30 caracteres.")
+    if get_role(codigo):
+        errors.append("Ya existe un rol con ese codigo.")
+    if not selected_permissions:
+        errors.append("Selecciona al menos un permiso para este rol.")
+    if selected_permissions - valid_permissions:
+        errors.append("Hay permisos no validos en el formulario.")
+
+    if errors:
+        flash_form_errors(errors)
+        return redirect(url_for("web.nuevo_rol"))
+
+    role = Rol(codigo=codigo, nombre=nombre, descripcion=descripcion or None)
+    role.permisos = selected_permissions
+    db.session.add(role)
+    audit_event(
+        "crear",
+        "rol",
+        codigo,
+        f"Se creo el rol {nombre}.",
+        {"permisos": sorted(selected_permissions)},
+    )
+    db.session.commit()
+
+    flash(f"Se creo el rol {role.nombre}.", "success")
+    return redirect(url_for("web.roles"))
+
+
+@web_bp.get("/roles/<role_code>/editar")
+@fresh_login_required
+@feature_required("roles.edit")
+def editar_rol(role_code):
+    role = get_role(role_code)
+    if role is None:
+        flash("El rol no existe.", "error")
+        return redirect(url_for("web.roles"))
+    return render_template(
+        "role_form.html",
+        page_title=f"Editar rol {role.nombre}",
+        role=role,
+        features=permission_definitions(),
+        is_new_role=False,
+    )
+
+
+@web_bp.post("/roles/<role_code>")
+@fresh_login_required
+@feature_required("roles.edit")
+def actualizar_rol(role_code):
+    role = db.session.get(Rol, role_code)
+    if role is None:
+        flash("El rol no existe.", "error")
+        return redirect(url_for("web.roles"))
+
+    nombre = (request.form.get("nombre") or "").strip()
+    descripcion = (request.form.get("descripcion") or "").strip()
+    selected_permissions = set(request.form.getlist("permisos"))
+    valid_permissions = {permission["key"] for permission in permission_definitions()}
+
+    errors = []
+    if not nombre:
+        errors.append("El rol necesita un nombre.")
+    if not selected_permissions:
+        errors.append("Selecciona al menos un permiso para este rol.")
+    if selected_permissions - valid_permissions:
+        errors.append("Hay permisos no validos en el formulario.")
+    if current_user.rol == role.codigo and "usuarios.view" not in selected_permissions:
+        errors.append("No puedes quitarle a tu propio rol el permiso de Usuarios y roles.")
+
+    if errors:
+        flash_form_errors(errors)
+        return redirect(url_for("web.editar_rol", role_code=role.codigo))
+
+    role.nombre = nombre
+    role.descripcion = descripcion or None
+    role.permisos = selected_permissions
+    audit_event(
+        "actualizar",
+        "rol",
+        role.codigo,
+        f"Se actualizaron permisos de {role.nombre}.",
+        {"permisos": sorted(selected_permissions)},
+    )
+    db.session.commit()
+
+    flash(f"Se actualizaron los permisos de {role.nombre}.", "success")
+    return redirect(url_for("web.roles"))
+
+
+@web_bp.post("/roles/<role_code>/eliminar")
+@fresh_login_required
+@feature_required("roles.delete")
+def eliminar_rol(role_code):
+    role = db.session.get(Rol, role_code)
+    if role is None:
+        flash("El rol no existe.", "error")
+        return redirect(url_for("web.roles"))
+    if role.codigo == ADMIN_ROLE_CODE:
+        flash("No puedes eliminar el rol base de administrador.", "warning")
+        return redirect(url_for("web.roles"))
+    if current_user.rol == role.codigo:
+        flash("No puedes eliminar tu propio rol.", "warning")
+        return redirect(url_for("web.roles"))
+    if Usuario.query.filter_by(rol=role.codigo).first():
+        flash("No puedes eliminar un rol que todavia tiene usuarios asignados.", "warning")
+        return redirect(url_for("web.roles"))
+
+    role_name = role.nombre
+    db.session.delete(role)
+    audit_event("eliminar", "rol", role_code, f"Se elimino el rol {role_name}.")
+    db.session.commit()
+
+    flash(f"Se elimino el rol {role_name}.", "success")
+    return redirect(url_for("web.roles"))
 
 
 @web_bp.get("/usuarios/nuevo")
 @fresh_login_required
-@feature_required("usuarios")
+@feature_required("usuarios.create")
 def nuevo_usuario():
-    return render_template("user_form.html", page_title="Nuevo usuario", user=None)
+    return render_template(
+        "user_form.html",
+        page_title="Nuevo usuario",
+        user=None,
+        roles=get_roles(),
+    )
 
 
 @web_bp.get("/usuarios/<int:user_id>/editar")
 @fresh_login_required
-@feature_required("usuarios")
+@feature_required("usuarios.edit")
 def editar_usuario(user_id):
     user = get_user(user_id)
     if user is None:
         flash("El usuario no existe.", "error")
         return redirect(url_for("web.usuarios"))
-    return render_template("user_form.html", page_title="Editar usuario", user=user)
+    return render_template(
+        "user_form.html",
+        page_title="Editar usuario",
+        user=user,
+        roles=get_roles(),
+    )
 
 
 @web_bp.post("/usuarios")
 @fresh_login_required
-@feature_required("usuarios")
+@feature_required("usuarios.create")
 def crear_usuario():
     nickname = (request.form.get("nickname") or "").strip()
     nombre = (request.form.get("nombre") or "").strip()
@@ -879,6 +1135,7 @@ def crear_usuario():
     rol = request.form.get("rol")
     password = request.form.get("password") or ""
     activo = bool_from_form(request.form.get("activo"))
+    must_change_password = bool_from_form(request.form.get("must_change_password"))
 
     errors = []
     if not nickname:
@@ -887,7 +1144,7 @@ def crear_usuario():
         errors.append("El usuario necesita un nombre.")
     if not apellido:
         errors.append("El usuario necesita un apellido.")
-    if rol not in {"dueño", "cajero", "mesero", "cocina"}:
+    if not valid_role_code(rol):
         errors.append("El rol seleccionado no es valido.")
     if len(password) < 6:
         errors.append("La contrasena debe tener al menos 6 caracteres.")
@@ -904,9 +1161,17 @@ def crear_usuario():
         apellido=apellido,
         rol=rol,
         activo=activo,
+        must_change_password=must_change_password,
     )
     user.set_password(password)
     db.session.add(user)
+    audit_event(
+        "crear",
+        "usuario",
+        nickname,
+        f"Se creo el usuario {nombre} {apellido}.",
+        {"rol": rol, "activo": activo, "must_change_password": must_change_password},
+    )
     db.session.commit()
 
     flash(f"Se creo el usuario {user.nombre_completo}.", "success")
@@ -915,7 +1180,7 @@ def crear_usuario():
 
 @web_bp.post("/usuarios/<int:user_id>")
 @fresh_login_required
-@feature_required("usuarios")
+@feature_required("usuarios.edit")
 def actualizar_usuario(user_id):
     user = get_user(user_id)
     if user is None:
@@ -928,17 +1193,25 @@ def actualizar_usuario(user_id):
     rol = request.form.get("rol")
     password = request.form.get("password") or ""
     activo = bool_from_form(request.form.get("activo"))
+    must_change_password = bool_from_form(request.form.get("must_change_password"))
 
     errors = []
     other = Usuario.query.filter(Usuario.nickname == nickname, Usuario.id != user.id).first()
     if other:
         errors.append("Ese nickname ya le pertenece a otra persona.")
-    if rol not in {"dueño", "cajero", "mesero", "cocina"}:
+    if not valid_role_code(rol):
         errors.append("El rol seleccionado no es valido.")
     if current_user.id == user.id and not activo:
         errors.append("No puedes desactivar tu propia cuenta.")
-    if current_user.id == user.id and rol != "dueño":
-        errors.append("No puedes quitarte a ti mismo el rol de administrador.")
+    selected_role = get_role(rol)
+    if current_user.id == user.id and (
+        selected_role is None or "usuarios.view" not in selected_role.permisos
+    ):
+        errors.append("No puedes quitarte a ti mismo el acceso a usuarios y roles.")
+    if password and current_user.id != user.id and not user_can(
+        current_user, "usuarios.reset_password"
+    ):
+        errors.append("No tienes permiso para resetear contrasenas de otros usuarios.")
 
     if errors:
         flash_form_errors(errors)
@@ -949,13 +1222,27 @@ def actualizar_usuario(user_id):
     user.apellido = apellido or user.apellido
     user.rol = rol
     user.activo = activo
+    user.must_change_password = must_change_password
 
     if password:
         if len(password) < 6:
             flash("La nueva contrasena debe tener al menos 6 caracteres.", "error")
             return redirect(url_for("web.editar_usuario", user_id=user.id))
         user.set_password(password)
+        user.must_change_password = True
 
+    audit_event(
+        "actualizar",
+        "usuario",
+        user.id,
+        f"Se actualizo el usuario {user.nombre_completo}.",
+        {
+            "rol": user.rol,
+            "activo": user.activo,
+            "password_reset": bool(password),
+            "must_change_password": user.must_change_password,
+        },
+    )
     db.session.commit()
     flash(f"Se actualizo el usuario {user.nombre_completo}.", "success")
     return redirect(url_for("web.usuarios"))
@@ -963,7 +1250,7 @@ def actualizar_usuario(user_id):
 
 @web_bp.post("/usuarios/<int:user_id>/eliminar")
 @fresh_login_required
-@feature_required("usuarios")
+@feature_required("usuarios.delete")
 def eliminar_usuario(user_id):
     user = get_user(user_id)
     if user is None:
@@ -981,13 +1268,27 @@ def eliminar_usuario(user_id):
 
     user_name = user.nombre_completo
     db.session.delete(user)
+    audit_event("eliminar", "usuario", user_id, f"Se elimino el usuario {user_name}.")
     db.session.commit()
     flash(f"Se eliminó el usuario {user_name}.", "success")
     return redirect(url_for("web.usuarios"))
 
 
+@web_bp.get("/auditoria")
+@fresh_login_required
+@feature_required("auditoria.view")
+def auditoria():
+    logs = (
+        AuditLog.query.options(joinedload(AuditLog.usuario))
+        .order_by(AuditLog.created_at.desc())
+        .limit(200)
+        .all()
+    )
+    return render_template("audit_logs.html", page_title="Auditoria", logs=logs)
+
+
 @web_bp.get("/mesas")
-@feature_required("mesas")
+@feature_required("mesas.view")
 def mesas():
     zonas, active_orders = grouped_tables()
     return render_template(
@@ -1000,7 +1301,7 @@ def mesas():
 
 
 @web_bp.get("/mesas/nueva")
-@roles_required("dueño")
+@feature_required("mesas.create")
 def nueva_mesa():
     return render_template(
         "table_form.html",
@@ -1011,7 +1312,7 @@ def nueva_mesa():
 
 
 @web_bp.post("/mesas")
-@roles_required("dueño")
+@feature_required("mesas.create")
 def crear_mesa():
     numero = parse_int(request.form.get("numero"))
     nombre_alias = (request.form.get("nombre_alias") or "").strip()
@@ -1038,6 +1339,7 @@ def crear_mesa():
         limpieza_estado=limpieza_estado,
     )
     db.session.add(mesa)
+    audit_event("crear", "mesa", None, f"Se creo {mesa.etiqueta}.")
     db.session.commit()
 
     flash(f"Se creo {mesa.etiqueta}.", "success")
@@ -1045,7 +1347,7 @@ def crear_mesa():
 
 
 @web_bp.get("/mesas/<int:mesa_id>/editar")
-@roles_required("dueño")
+@feature_required("mesas.edit")
 def editar_mesa(mesa_id):
     mesa = db.session.get(Mesa, mesa_id)
     if mesa is None:
@@ -1060,7 +1362,7 @@ def editar_mesa(mesa_id):
 
 
 @web_bp.post("/mesas/<int:mesa_id>")
-@roles_required("dueño")
+@feature_required("mesas.edit")
 def actualizar_mesa(mesa_id):
     mesa = db.session.get(Mesa, mesa_id)
     if mesa is None:
@@ -1093,6 +1395,7 @@ def actualizar_mesa(mesa_id):
     mesa.nombre_alias = nombre_alias or None
     mesa.zona_id = zona.id
     mesa.limpieza_estado = limpieza_estado
+    audit_event("actualizar", "mesa", mesa.id, f"Se actualizo {mesa.etiqueta}.")
     db.session.commit()
 
     flash(f"Se actualizo {mesa.etiqueta}.", "success")
@@ -1100,7 +1403,7 @@ def actualizar_mesa(mesa_id):
 
 
 @web_bp.post("/mesas/<int:mesa_id>/limpieza")
-@roles_required("dueño", "mesero")
+@feature_required("mesas.edit")
 def actualizar_limpieza_mesa(mesa_id):
     mesa = db.session.get(Mesa, mesa_id)
     if mesa is None:
@@ -1116,6 +1419,7 @@ def actualizar_limpieza_mesa(mesa_id):
         return redirect(request.referrer or url_for("web.mesas"))
 
     mesa.limpieza_estado = limpieza_estado
+    audit_event("actualizar_limpieza", "mesa", mesa.id, f"{mesa.etiqueta} cambio a {limpieza_estado}.")
     db.session.commit()
     flash(
         f"{mesa.etiqueta} quedó marcada como {'limpia' if limpieza_estado == 'limpia' else 'sucia'}.",
@@ -1125,7 +1429,7 @@ def actualizar_limpieza_mesa(mesa_id):
 
 
 @web_bp.post("/mesas/<int:mesa_id>/eliminar")
-@roles_required("dueño")
+@feature_required("mesas.delete")
 def eliminar_mesa(mesa_id):
     mesa = db.session.get(Mesa, mesa_id)
     if mesa is None:
@@ -1140,13 +1444,14 @@ def eliminar_mesa(mesa_id):
 
     mesa_label = mesa.etiqueta
     db.session.delete(mesa)
+    audit_event("eliminar", "mesa", mesa_id, f"Se elimino {mesa_label}.")
     db.session.commit()
     flash(f"Se eliminó {mesa_label}.", "success")
     return redirect(url_for("web.mesas"))
 
 
 @web_bp.get("/ordenes")
-@feature_required("ordenes")
+@feature_required("ordenes.view")
 def ordenes():
     status = request.args.get("estado") or None
     filter_date = parse_date_filter(request.args.get("fecha"))
@@ -1164,7 +1469,7 @@ def ordenes():
 
 
 @web_bp.post("/ordenes")
-@roles_required("dueño", "cajero", "mesero")
+@feature_required("ordenes.create")
 def crear_orden():
     mesa_id = parse_int(request.form.get("mesa_id"))
     if mesa_id <= 0:
@@ -1198,6 +1503,7 @@ def crear_orden():
     if not is_takeout:
         mesa.estado = "ocupada"
     db.session.add(order)
+    audit_event("crear", "orden", None, f"Se abrio una orden en {mesa.etiqueta}.")
     db.session.commit()
 
     if was_occupied:
@@ -1208,7 +1514,7 @@ def crear_orden():
 
 
 @web_bp.get("/ordenes/<int:order_id>")
-@feature_required("ordenes")
+@feature_required("ordenes.view")
 def detalle_orden(order_id):
     order = get_order(order_id)
     if order is None:
@@ -1243,8 +1549,8 @@ def detalle_orden(order_id):
         },
         can_charge=can_charge,
         charge_message=charge_message,
-        can_prepare=current_user.rol in {"dueño", "cocina"},
-        can_deliver=current_user.rol in {"dueño", "mesero"},
+        can_prepare=user_can(current_user, "cocina"),
+        can_deliver=user_can(current_user, "ordenes"),
         division_locked=any(division.pagada for division in order.divisiones),
     )
 
@@ -1280,7 +1586,7 @@ def ticket_cocina(order_id):
 
 
 @web_bp.post("/ordenes/<int:order_id>/items")
-@roles_required("dueño", "cajero", "mesero")
+@feature_required("ordenes.items")
 def agregar_item_orden(order_id):
     order = get_order(order_id)
     if order is None:
@@ -1361,6 +1667,12 @@ def agregar_item_orden(order_id):
 
     db.session.flush()
     sync_order(order)
+    audit_event(
+        "agregar_items",
+        "orden",
+        order.id,
+        f"Se agregaron {len(selected_lines)} linea(s) a la orden #{order.id}.",
+    )
     db.session.commit()
 
     if len(selected_lines) == 1:
@@ -1379,7 +1691,7 @@ def agregar_item_orden(order_id):
 
 
 @web_bp.post("/items/<int:item_id>/preparar")
-@roles_required("dueño", "cocina")
+@feature_required("cocina.prepare")
 def preparar_item(item_id):
     item, redirect_response = get_item_or_redirect(item_id)
     if redirect_response:
@@ -1391,13 +1703,14 @@ def preparar_item(item_id):
 
     item.estado = "entregado"
     settle_order(item.orden)
+    audit_event("preparar_item", "orden_item", item.id, f"Item #{item.id} preparado.")
     db.session.commit()
     flash("El item quedo listo y entregado.", "success")
     return redirect(request.referrer or url_for("web.cocina"))
 
 
 @web_bp.post("/items/<int:item_id>/entregar")
-@roles_required("dueño", "mesero")
+@feature_required("ordenes.deliver")
 def entregar_item(item_id):
     item, redirect_response = get_item_or_redirect(item_id)
     if redirect_response:
@@ -1409,6 +1722,7 @@ def entregar_item(item_id):
 
     item.estado = "entregado"
     settle_order(item.orden)
+    audit_event("entregar_item", "orden_item", item.id, f"Item #{item.id} entregado.")
     db.session.commit()
 
     flash("El item fue marcado como entregado.", "success")
@@ -1416,7 +1730,7 @@ def entregar_item(item_id):
 
 
 @web_bp.post("/items/<int:item_id>/cancelar")
-@roles_required("dueño", "cajero", "mesero")
+@feature_required("ordenes.cancel_item")
 def cancelar_item(item_id):
     item, redirect_response = get_item_or_redirect(item_id)
     if redirect_response:
@@ -1428,7 +1742,7 @@ def cancelar_item(item_id):
     if item.pagado:
         flash("No puedes cancelar un item que ya fue cobrado.", "error")
         return redirect(request.referrer or url_for("web.detalle_orden", order_id=item.orden_id))
-    if item.estado == "entregado" and current_user.rol != "dueño":
+    if item.estado == "entregado" and not user_can(current_user, "usuarios"):
         flash("Solo administracion puede cancelar un item que ya fue entregado.", "error")
         return redirect(request.referrer or url_for("web.detalle_orden", order_id=item.orden_id))
     if any(division.pagada for division in item.orden.divisiones):
@@ -1444,6 +1758,7 @@ def cancelar_item(item_id):
     item.estado = "cancelado"
     sync_order(item.orden)
     settle_order(item.orden)
+    audit_event("cancelar_item", "orden_item", item.id, f"Item #{item.id} cancelado.")
     db.session.commit()
 
     flash("El item fue cancelado.", "success")
@@ -1451,7 +1766,7 @@ def cancelar_item(item_id):
 
 
 @web_bp.post("/ordenes/<int:order_id>/dividir")
-@roles_required("dueño", "cajero")
+@feature_required("caja.charge")
 def dividir_orden(order_id):
     order = get_order(order_id)
     if order is None:
@@ -1482,6 +1797,7 @@ def dividir_orden(order_id):
         )
 
     save_split_configuration(order, people_count, labels, assignments)
+    audit_event("dividir", "orden", order.id, f"Orden #{order.id} dividida en {people_count} cuentas.")
     db.session.commit()
 
     flash("La cuenta quedo dividida por persona.", "success")
@@ -1496,7 +1812,7 @@ def dividir_orden(order_id):
 
 
 @web_bp.post("/ordenes/<int:order_id>/dividir/quitar")
-@roles_required("dueño", "cajero")
+@feature_required("caja.charge")
 def quitar_division(order_id):
     order = get_order(order_id)
     if order is None:
@@ -1508,13 +1824,14 @@ def quitar_division(order_id):
         return redirect(url_for("web.detalle_orden", order_id=order.id))
 
     clear_divisiones(order)
+    audit_event("quitar_division", "orden", order.id, f"Se quito la division de orden #{order.id}.")
     db.session.commit()
     flash("La orden volvio al cobro normal.", "success")
     return redirect(url_for("web.detalle_orden", order_id=order.id))
 
 
 @web_bp.post("/divisiones/<int:division_id>/pagar")
-@roles_required("dueño", "cajero")
+@feature_required("caja.charge")
 def pagar_division(division_id):
     division = (
         OrdenDivision.query.options(joinedload(OrdenDivision.orden).joinedload(Orden.mesa))
@@ -1541,6 +1858,7 @@ def pagar_division(division_id):
     db.session.add(payment)
     db.session.flush()
     settle_order(division.orden)
+    audit_event("cobrar", "orden", division.orden_id, f"Se cobro {division.nombre_visible}.")
     db.session.commit()
 
     flash(f"{division.nombre_visible} quedo cobrada.", "success")
@@ -1548,7 +1866,7 @@ def pagar_division(division_id):
 
 
 @web_bp.post("/ordenes/<int:order_id>/pagar")
-@roles_required("dueño", "cajero")
+@feature_required("caja.charge")
 def pagar_orden(order_id):
     order = get_order(order_id)
     if order is None:
@@ -1593,6 +1911,7 @@ def pagar_orden(order_id):
     db.session.add(payment)
     db.session.flush()
     settle_order(order)
+    audit_event("cobrar", "orden", order.id, f"Se registro pago en orden #{order.id}.", {"monto": amount, "metodo": method})
     db.session.commit()
 
     if order.estado == "pagada":
@@ -1603,7 +1922,7 @@ def pagar_orden(order_id):
 
 
 @web_bp.post("/ordenes/<int:order_id>/cancelar")
-@roles_required("dueño", "cajero")
+@feature_required("caja.cancel_order")
 def cancelar_orden(order_id):
     order = get_order(order_id)
     if order is None:
@@ -1613,7 +1932,9 @@ def cancelar_orden(order_id):
     if order.total_pagado > 0:
         flash("No puedes cancelar una orden que ya tiene pagos.", "error")
         return redirect(url_for("web.detalle_orden", order_id=order.id))
-    if any(item.estado == "entregado" for item in order.items_activos) and current_user.rol != "dueño":
+    if any(item.estado == "entregado" for item in order.items_activos) and not user_can(
+        current_user, "usuarios"
+    ):
         flash("Solo administracion puede cancelar una orden con items ya entregados.", "error")
         return redirect(url_for("web.detalle_orden", order_id=order.id))
 
@@ -1622,6 +1943,7 @@ def cancelar_orden(order_id):
         if item.estado != "cancelado":
             item.estado = "cancelado"
     sync_order(order)
+    audit_event("cancelar", "orden", order.id, f"Orden #{order.id} cancelada.")
     db.session.commit()
 
     flash(f"La orden #{order.id} fue cancelada.", "success")
@@ -1629,7 +1951,7 @@ def cancelar_orden(order_id):
 
 
 @web_bp.get("/productos")
-@feature_required("productos")
+@feature_required("productos.view")
 def productos():
     search = (request.args.get("q") or "").strip()
     products = get_productos(search=search)
@@ -1644,7 +1966,7 @@ def productos():
 
 
 @web_bp.get("/productos/nuevo")
-@feature_required("productos")
+@feature_required("productos.create")
 def nuevo_producto():
     return render_template(
         "product_form.html",
@@ -1655,7 +1977,7 @@ def nuevo_producto():
 
 
 @web_bp.post("/productos")
-@feature_required("productos")
+@feature_required("productos.create")
 def crear_producto():
     payload, errors = extract_product_payload()
     if errors:
@@ -1664,6 +1986,7 @@ def crear_producto():
 
     product = Producto(**payload)
     db.session.add(product)
+    audit_event("crear", "producto", None, f"Se creo el producto {product.nombre}.")
     db.session.commit()
 
     flash(f"Se creo el producto {product.nombre}.", "success")
@@ -1671,7 +1994,7 @@ def crear_producto():
 
 
 @web_bp.get("/productos/<int:product_id>/editar")
-@feature_required("productos")
+@feature_required("productos.edit")
 def editar_producto(product_id):
     product = get_producto(product_id)
     if product is None:
@@ -1686,7 +2009,7 @@ def editar_producto(product_id):
 
 
 @web_bp.post("/productos/<int:product_id>")
-@feature_required("productos")
+@feature_required("productos.edit")
 def actualizar_producto(product_id):
     product = get_producto(product_id)
     if product is None:
@@ -1702,6 +2025,7 @@ def actualizar_producto(product_id):
     for key, value in payload.items():
         setattr(product, key, value)
 
+    audit_event("actualizar", "producto", product.id, f"Se actualizo el producto {product.nombre}.")
     db.session.commit()
 
     new_image = payload.get("imagen_url")
@@ -1712,8 +2036,34 @@ def actualizar_producto(product_id):
     return redirect(url_for("web.productos"))
 
 
+@web_bp.post("/productos/<int:product_id>/disponibilidad")
+@feature_required("productos.availability")
+def alternar_disponibilidad_producto(product_id):
+    product = get_producto(product_id)
+    if product is None:
+        flash("El producto no existe.", "error")
+        return redirect(url_for("web.productos"))
+
+    product.disponible = not product.disponible
+    audit_event(
+        "cambiar_disponibilidad",
+        "producto",
+        product.id,
+        f"{product.nombre} quedo {'disponible' if product.disponible else 'agotado'}.",
+    )
+    db.session.commit()
+
+    status = "disponible" if product.disponible else "agotado"
+    flash(f"Se marco {product.nombre} como {status}.", "success")
+
+    search = (request.form.get("q") or "").strip()
+    if search:
+        return redirect(url_for("web.productos", q=search))
+    return redirect(url_for("web.productos"))
+
+
 @web_bp.post("/productos/<int:product_id>/eliminar")
-@feature_required("productos")
+@feature_required("productos.delete")
 def eliminar_producto(product_id):
     product = get_producto(product_id)
     if product is None:
@@ -1735,6 +2085,7 @@ def eliminar_producto(product_id):
     image_to_delete = product.imagen_url
     product_name = product.nombre
     db.session.delete(product)
+    audit_event("eliminar", "producto", product_id, f"Se elimino el producto {product_name}.")
     db.session.commit()
 
     delete_uploaded_product_image(image_to_delete)
@@ -1743,7 +2094,7 @@ def eliminar_producto(product_id):
 
 
 @web_bp.get("/caja")
-@feature_required("caja")
+@feature_required("caja.view")
 def caja():
     session_open = get_active_cash_session()
     closed_sessions = (
@@ -1768,7 +2119,7 @@ def caja():
 
 
 @web_bp.post("/caja/abrir")
-@roles_required("dueño", "cajero")
+@feature_required("caja.open")
 def abrir_caja():
     if get_active_cash_session() is not None:
         flash("Ya existe una sesion de caja abierta.", "error")
@@ -1785,6 +2136,7 @@ def abrir_caja():
         estado="abierta",
     )
     db.session.add(session_open)
+    audit_event("abrir", "caja", None, "Caja abierta.", {"monto_apertura": opening_amount})
     db.session.commit()
 
     flash("Caja abierta correctamente.", "success")
@@ -1792,7 +2144,7 @@ def abrir_caja():
 
 
 @web_bp.post("/caja/movimientos")
-@roles_required("dueño", "cajero")
+@feature_required("caja.movements")
 def registrar_movimiento_caja():
     session_open = get_active_cash_session()
     if session_open is None:
@@ -1820,6 +2172,7 @@ def registrar_movimiento_caja():
         monto=amount,
     )
     db.session.add(movement)
+    audit_event("movimiento", "caja", session_open.id, f"Movimiento de caja: {concept}.", {"tipo": movement_type, "monto": amount})
     db.session.commit()
 
     flash("Movimiento registrado.", "success")
@@ -1827,7 +2180,7 @@ def registrar_movimiento_caja():
 
 
 @web_bp.post("/caja/cerrar")
-@roles_required("dueño", "cajero")
+@feature_required("caja.close")
 def cerrar_caja():
     session_open = get_active_cash_session()
     if session_open is None:
@@ -1838,6 +2191,7 @@ def cerrar_caja():
     session_open.monto_cierre_real = closing_amount
     session_open.fecha_cierre = datetime.utcnow()
     session_open.estado = "cerrada"
+    audit_event("cerrar", "caja", session_open.id, "Caja cerrada.", {"monto_cierre": closing_amount})
     db.session.commit()
 
     flash("Caja cerrada correctamente.", "success")
@@ -1845,7 +2199,7 @@ def cerrar_caja():
 
 
 @web_bp.get("/reportes")
-@feature_required("reportes")
+@feature_required("reportes.view")
 def reportes():
     start_date, end_date = parse_report_range()
     report = get_report_snapshot(start_date, end_date)
@@ -1859,7 +2213,7 @@ def reportes():
 
 
 @web_bp.get("/reportes/export/pdf")
-@feature_required("reportes")
+@feature_required("reportes.export")
 def exportar_reporte_pdf():
     start_date, end_date = parse_report_range()
     report = get_report_snapshot(start_date, end_date)
@@ -1872,7 +2226,7 @@ def exportar_reporte_pdf():
 
 
 @web_bp.get("/reportes/export/<string:kind>")
-@feature_required("reportes")
+@feature_required("reportes.export")
 def exportar_reporte(kind):
     start_date, end_date = parse_report_range()
 
@@ -1883,7 +2237,7 @@ def exportar_reporte(kind):
             ["Fecha", "Orden", "Mesa", "Cliente", "Metodo", "Monto"],
             [
                 [
-                    payment.created_at.strftime("%Y-%m-%d %H:%M"),
+                    local_datetime_label(payment.created_at),
                     f"#{payment.orden_id}",
                     payment.orden.mesa.etiqueta
                     if payment.orden and payment.orden.mesa
@@ -1930,7 +2284,7 @@ def exportar_reporte(kind):
             ["Fecha", "Producto", "Tipo", "Unidades", "Usuario", "Notas"],
             [
                 [
-                    movement.created_at.strftime("%Y-%m-%d %H:%M"),
+                    local_datetime_label(movement.created_at),
                     movement.producto.nombre if movement.producto else "",
                     movement.tipo,
                     movement.cantidad_unidades,
@@ -1955,7 +2309,7 @@ def exportar_reporte(kind):
                     order.estado,
                     f"{order.total}",
                     f"{order.total_pagado}",
-                    order.created_at.strftime("%Y-%m-%d %H:%M"),
+                    local_datetime_label(order.created_at),
                 ]
                 for order in orders
             ],
@@ -1966,7 +2320,7 @@ def exportar_reporte(kind):
 
 
 @web_bp.get("/cocina")
-@feature_required("cocina")
+@feature_required("cocina.view")
 def cocina():
     return render_template(
         "kitchen.html",
@@ -1977,7 +2331,7 @@ def cocina():
 
 
 @web_bp.get("/inventario")
-@feature_required("inventario")
+@feature_required("inventario.view")
 def inventario():
     return render_template(
         "inventory.html",
@@ -1989,7 +2343,7 @@ def inventario():
 
 
 @web_bp.get("/inventario/nuevo")
-@feature_required("inventario")
+@feature_required("inventario.create")
 def nuevo_movimiento_inventario():
     return render_template(
         "inventory_form.html",
@@ -1999,7 +2353,7 @@ def nuevo_movimiento_inventario():
 
 
 @web_bp.post("/inventario")
-@feature_required("inventario")
+@feature_required("inventario.create")
 def registrar_movimiento_inventario():
     product_id = parse_int(request.form.get("product_id"))
     movement_type = request.form.get("movement_type")
@@ -2045,6 +2399,13 @@ def registrar_movimiento_inventario():
         usuario_id=current_user.id,
     )
     db.session.add(movement)
+    audit_event(
+        "movimiento",
+        "inventario",
+        product.id,
+        f"Movimiento de inventario en {product.nombre}.",
+        {"tipo": movement_type, "unidades": stored_units},
+    )
     db.session.commit()
 
     flash("Movimiento de inventario registrado.", "success")
@@ -2078,6 +2439,9 @@ def api_me():
 @api_bp.get("/dashboard")
 @login_required
 def api_dashboard():
+    if not user_can(current_user, "dashboard"):
+        return api_permission_denied()
+
     try:
         return jsonify(get_dashboard_metrics())
     except SQLAlchemyError as exc:
@@ -2106,6 +2470,9 @@ def api_cocina_pending():
 @api_bp.get("/mesas")
 @login_required
 def api_mesas():
+    if not user_can(current_user, "mesas"):
+        return api_permission_denied()
+
     try:
         zonas, active_orders = grouped_tables()
         payload = []
@@ -2127,6 +2494,9 @@ def api_mesas():
 @api_bp.get("/productos")
 @login_required
 def api_productos():
+    if not user_can(current_user, "productos"):
+        return api_permission_denied()
+
     try:
         return jsonify([product.to_dict() for product in get_productos()])
     except SQLAlchemyError as exc:
@@ -2136,6 +2506,9 @@ def api_productos():
 @api_bp.get("/ordenes/abiertas")
 @login_required
 def api_ordenes_abiertas():
+    if not user_can(current_user, "ordenes"):
+        return api_permission_denied()
+
     try:
         orders = get_orders_for_listing(status="abierta", date_value=None)
         return jsonify([order.to_dict() for order in orders])
@@ -2168,10 +2541,10 @@ def api_orden_estado(order_id):
             "order": order,
             "can_charge": can_charge,
             "charge_message": charge_message,
-            "can_prepare": current_user.rol in {"dueño", "cocina"},
-            "can_deliver": current_user.rol in {"dueño", "mesero"},
+            "can_prepare": user_can(current_user, "cocina"),
+            "can_deliver": user_can(current_user, "ordenes"),
             "division_locked": division_locked,
-            "owner_user": current_user.rol == "dueño",
+            "owner_user": user_can(current_user, "usuarios"),
             "split_people_count": people_count,
             "split_matrix": build_split_matrix(order, people_count),
             "split_labels": {

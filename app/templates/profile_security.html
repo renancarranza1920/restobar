@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="module-shell module-narrow">
+    <section class="module-bar">
+        <div>
+            <p class="eyebrow">Seguridad</p>
+            <h1>Mi contrasena</h1>
+            <p class="muted-copy">Actualiza el acceso de tu cuenta.</p>
+        </div>
+    </section>
+
+    <section class="panel">
+        <form class="form-stack" method="post" action="{{ url_for('web.actualizar_mi_password') }}">
+            <div>
+                <label for="current_password">Contrasena actual</label>
+                <input id="current_password" name="current_password" type="password" required autocomplete="current-password">
+            </div>
+
+            <div class="form-grid two-up">
+                <div>
+                    <label for="new_password">Nueva contrasena</label>
+                    <input id="new_password" name="new_password" type="password" minlength="6" required autocomplete="new-password">
+                </div>
+                <div>
+                    <label for="confirm_password">Confirmar contrasena</label>
+                    <input id="confirm_password" name="confirm_password" type="password" minlength="6" required autocomplete="new-password">
+                </div>
+            </div>
+
+            {% if current_user.must_change_password %}
+                <div class="inline-alert inline-alert-info">
+                    <i class="fa-solid fa-circle-info mr-2"></i>
+                    <span>Tu cuenta requiere una contrasena nueva antes de continuar.</span>
+                </div>
+            {% endif %}
+
+            <button class="button button-primary button-full" type="submit">
+                <i class="fa-solid fa-key mr-2"></i> Actualizar contrasena
+            </button>
+        </form>
+    </section>
+</section>
+{% endblock %}

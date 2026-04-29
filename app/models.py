@@ -1,4 +1,5 @@
 import hmac
+import json
 from datetime import datetime
 from decimal import Decimal
 
@@ -28,11 +29,9 @@ class Usuario(UserMixin, db.Model):
     nombre = db.Column(db.String(100), nullable=False)
     apellido = db.Column(db.String(100), nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
-    rol = db.Column(
-        db.Enum("dueño", "cajero", "mesero", "cocina", name="usuarios_roles"),
-        nullable=False,
-    )
+    rol = db.Column(db.String(30), nullable=False)
     activo = db.Column(db.Boolean, default=True, nullable=False)
+    must_change_password = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     sesiones_caja = db.relationship("SesionCaja", back_populates="usuario", lazy=True)
@@ -76,10 +75,74 @@ class Usuario(UserMixin, db.Model):
             "nombre_completo": self.nombre_completo,
             "rol": self.rol,
             "activo": self.activo,
+            "must_change_password": self.must_change_password,
         }
 
     def __repr__(self):
         return f"<Usuario {self.nickname}>"
+
+
+class Rol(db.Model):
+    __tablename__ = "roles"
+
+    codigo = db.Column(db.String(30), primary_key=True)
+    nombre = db.Column(db.String(80), nullable=False)
+    descripcion = db.Column(db.String(255))
+    permisos_csv = db.Column("permisos", db.Text, default="", nullable=False)
+    updated_at = db.Column(
+        db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    @property
+    def permisos(self):
+        return {
+            permiso.strip()
+            for permiso in (self.permisos_csv or "").split(",")
+            if permiso.strip()
+        }
+
+    @permisos.setter
+    def permisos(self, values):
+        cleaned = sorted({str(value).strip() for value in values if str(value).strip()})
+        self.permisos_csv = ",".join(cleaned)
+
+    def to_dict(self):
+        return {
+            "codigo": self.codigo,
+            "nombre": self.nombre,
+            "descripcion": self.descripcion,
+            "permisos": sorted(self.permisos),
+        }
+
+
+class AuditLog(db.Model):
+    __tablename__ = "audit_logs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    usuario_id = db.Column(db.Integer, db.ForeignKey("usuarios.id"), nullable=True)
+    accion = db.Column(db.String(80), nullable=False)
+    entidad = db.Column(db.String(80), nullable=False)
+    entidad_id = db.Column(db.String(80), nullable=True)
+    resumen = db.Column(db.String(255), nullable=True)
+    detalles_json = db.Column("detalles", db.Text, nullable=True)
+    ip_address = db.Column(db.String(45), nullable=True)
+    user_agent = db.Column(db.String(255), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    usuario = db.relationship("Usuario", lazy=True)
+
+    @property
+    def detalles(self):
+        if not self.detalles_json:
+            return {}
+        try:
+            return json.loads(self.detalles_json)
+        except ValueError:
+            return {}
+
+    @detalles.setter
+    def detalles(self, value):
+        self.detalles_json = json.dumps(value or {}, ensure_ascii=False, default=str)
 
 
 class Zona(db.Model):

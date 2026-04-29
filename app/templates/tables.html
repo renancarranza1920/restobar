@@ -9,7 +9,7 @@
             <p class="text-sm text-muted mt-1">Controla ocupación, limpieza y acceso rápido a las órdenes.</p>
         </div>
 
-        {% if current_user.rol == 'dueño' %}
+        {% if user_can(current_user, 'mesas') %}
             <div class="page-actions">
                 <a class="button button-ghost hover-lift shadow-sm border-gray-200" href="{{ url_for('web.zonas') }}">
                     <i class="fa-solid fa-layer-group mr-2"></i> Zonas
@@ -83,25 +83,29 @@
 
                                 <div class="table-actions border-t pt-3 border-gray-100 mt-auto">
                                     {% if table_orders %}
-                                        <a class="button button-secondary button-small flex-1 text-center" href="{{ url_for('web.detalle_orden', order_id=order.id) }}">
-                                            Ver ultima
-                                        </a>
-                                        <form method="post" action="{{ url_for('web.crear_orden') }}" class="flex-1">
-                                            <input type="hidden" name="mesa_id" value="{{ mesa.id }}">
-                                            <button class="button button-primary button-small w-full" type="submit" {% if not cash_session or mesa.limpieza_estado != 'limpia' %}disabled{% endif %}>
-                                                <i class="fa-solid fa-user-plus mr-1"></i> Otra cuenta
-                                            </button>
-                                        </form>
+                                        {% if user_can(current_user, 'ordenes') %}
+                                            <a class="button button-secondary button-small flex-1 text-center" href="{{ url_for('web.detalle_orden', order_id=order.id) }}">
+                                                Ver ultima
+                                            </a>
+                                            <form method="post" action="{{ url_for('web.crear_orden') }}" class="flex-1">
+                                                <input type="hidden" name="mesa_id" value="{{ mesa.id }}">
+                                                <button class="button button-primary button-small w-full" type="submit" {% if not cash_session or mesa.limpieza_estado != 'limpia' %}disabled{% endif %}>
+                                                    <i class="fa-solid fa-user-plus mr-1"></i> Otra cuenta
+                                                </button>
+                                            </form>
+                                        {% endif %}
                                     {% else %}
-                                        <form method="post" action="{{ url_for('web.crear_orden') }}" class="flex-1">
-                                            <input type="hidden" name="mesa_id" value="{{ mesa.id }}">
-                                            <button class="button button-primary button-small w-full" type="submit" {% if not cash_session or mesa.limpieza_estado != 'limpia' %}disabled{% endif %}>
-                                                <i class="fa-solid fa-plus mr-1"></i> Abrir
-                                            </button>
-                                        </form>
+                                        {% if user_can(current_user, 'ordenes') %}
+                                            <form method="post" action="{{ url_for('web.crear_orden') }}" class="flex-1">
+                                                <input type="hidden" name="mesa_id" value="{{ mesa.id }}">
+                                                <button class="button button-primary button-small w-full" type="submit" {% if not cash_session or mesa.limpieza_estado != 'limpia' %}disabled{% endif %}>
+                                                    <i class="fa-solid fa-plus mr-1"></i> Abrir
+                                                </button>
+                                            </form>
+                                        {% endif %}
                                     {% endif %}
 
-                                    {% if current_user.rol in ['dueño', 'mesero'] and mesa.estado != 'ocupada' %}
+                                    {% if user_can(current_user, 'mesas') and mesa.estado != 'ocupada' %}
                                         <form method="post" action="{{ url_for('web.actualizar_limpieza_mesa', mesa_id=mesa.id) }}">
                                             <input type="hidden" name="limpieza_estado" value="{{ 'limpia' if mesa.limpieza_estado == 'sucia' else 'sucia' }}">
                                             <button class="button {{ 'button-success' if mesa.limpieza_estado == 'sucia' else 'button-warning' }} button-small" type="submit" data-confirm-title="Actualizar limpieza" data-confirm-message="Se cambiará el estado de limpieza de {{ mesa.etiqueta }}.">
@@ -111,7 +115,7 @@
                                         </form>
                                     {% endif %}
 
-                                    {% if current_user.rol == 'dueño' %}
+                                    {% if user_can(current_user, 'mesas') %}
                                         <a class="button button-ghost button-small px-3 border-gray-200" href="{{ url_for('web.editar_mesa', mesa_id=mesa.id) }}" title="Editar mesa">
                                             <i class="fa-solid fa-pen"></i>
                                         </a>
