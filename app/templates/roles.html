@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="filament-dashboard p-4 md:p-6">
+    <header class="page-header">
+        <div>
+            <p class="text-xs font-bold text-primary uppercase tracking-wide mb-1">Seguridad</p>
+            <h1 class="text-2xl font-bold text-gray-800">
+                <i class="fa-solid fa-shield-halved mr-2 text-muted"></i> Roles
+            </h1>
+            <p class="text-sm text-muted mt-1">Define que puede ver y usar cada perfil del personal.</p>
+        </div>
+
+        <div class="page-actions">
+            <a class="button button-ghost hover-lift bg-white shadow-sm border-gray-200" href="{{ url_for('web.usuarios') }}">
+                <i class="fa-solid fa-arrow-left mr-2"></i> Usuarios
+            </a>
+            {% if user_can(current_user, 'roles.create') %}
+                <a class="button button-primary hover-lift shadow-sm" href="{{ url_for('web.nuevo_rol') }}">
+                    <i class="fa-solid fa-plus mr-2"></i> Nuevo rol
+                </a>
+            {% endif %}
+        </div>
+    </header>
+
+    <article class="panel">
+        <div class="panel-header border-b bg-gray-50">
+            <div>
+                <h2 class="panel-title font-bold">
+                    <i class="fa-solid fa-key mr-2 text-muted"></i> Roles configurados
+                </h2>
+                <p class="text-sm text-muted mt-1">Cada rol controla la visibilidad del menu y el acceso a rutas del sistema.</p>
+            </div>
+        </div>
+
+        <div class="panel-body">
+            <div class="entity-list">
+                {% for role in roles %}
+                    <article class="entity-card">
+                        <div class="entity-main">
+                            <div class="entity-topline">
+                                <div>
+                                    <strong class="text-sm">{{ role.nombre }}</strong>
+                                    <span class="text-xs text-muted">
+                                        {{ users_by_role.get(role.codigo, 0) }} usuario{{ '' if users_by_role.get(role.codigo, 0) == 1 else 's' }} · {{ role.descripcion or 'Sin descripcion' }}
+                                    </span>
+                                </div>
+                                <span class="badge {{ 'badge-pagada' if role.permisos else 'badge-cancelada' }}">
+                                    {{ role.permisos|length }} permiso{{ '' if role.permisos|length == 1 else 's' }}
+                                </span>
+                            </div>
+
+                            <div class="entity-metrics">
+                                {% set shown = namespace(count=0) %}
+                                {% for feature in features %}
+                                    {% if feature.key in role.permisos and shown.count < 8 %}
+                                        {% set shown.count = shown.count + 1 %}
+                                        <div>
+                                            <span>{{ feature.group }}</span>
+                                            <strong>{{ feature.label }}</strong>
+                                        </div>
+                                    {% endif %}
+                                {% endfor %}
+                                {% if role.permisos|length > 8 %}
+                                    <div>
+                                        <span>Mas permisos</span>
+                                        <strong>+{{ role.permisos|length - 8 }}</strong>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <div class="entity-actions">
+                            {% if user_can(current_user, 'roles.edit') %}
+                                <a class="button button-secondary button-small" href="{{ url_for('web.editar_rol', role_code=role.codigo) }}">
+                                    <i class="fa-solid fa-sliders mr-1"></i> Editar permisos
+                                </a>
+                            {% endif %}
+                            {% if user_can(current_user, 'roles.delete') and role.codigo != 'administrador' and users_by_role.get(role.codigo, 0) == 0 %}
+                                <form method="post" action="{{ url_for('web.eliminar_rol', role_code=role.codigo) }}">
+                                    <button class="button button-ghost button-small text-danger border-danger" type="submit" data-confirm-title="Eliminar rol" data-confirm-message="Se eliminara el rol {{ role.nombre }}.">
+                                        <i class="fa-solid fa-trash"></i>
+                                    </button>
+                                </form>
+                            {% endif %}
+                        </div>
+                    </article>
+                {% endfor %}
+            </div>
+        </div>
+    </article>
+</div>
+{% endblock %}

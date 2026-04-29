@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block content %}
-{% set owner_user = current_user.rol == 'dueño' %}
+{% set owner_user = user_can(current_user, 'usuarios') %}
 {% set has_delivered_items = order.items_entregados|length > 0 %}
 
 <div class="filament-dashboard p-4 md:p-6" data-order-live data-refresh-url="{{ url_for('api.api_orden_estado', order_id=order.id, personas=split_people_count) }}">

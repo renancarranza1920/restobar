@@ -12,7 +12,10 @@
             <div>
                 <p class="ticket-eyebrow">Ticket de venta</p>
                 <h1>{{ app_name }}</h1>
-                <p>Orden #{{ order.id }} | {{ order.created_at|datetime_short }}</p>
+                <p>
+                    Orden #{{ order.id }} |
+                    <span data-local-datetime="{{ order.created_at|datetime_iso }}">{{ order.created_at|datetime_short }}</span>
+                </p>
             </div>
             <div class="ticket-actions no-print">
                 <button class="button ticket-button" type="button" onclick="window.print()">Imprimir</button>
@@ -86,7 +89,10 @@
                 <div class="ticket-list">
                     {% for payment in order.pagos %}
                         <div class="ticket-list-row">
-                            <span>{{ payment.metodo|capitalize }} | {{ payment.created_at|datetime_short }}</span>
+                            <span>
+                                {{ payment.metodo|capitalize }} |
+                                <span data-local-datetime="{{ payment.created_at|datetime_iso }}">{{ payment.created_at|datetime_short }}</span>
+                            </span>
                             <strong>{{ payment.monto|money }}</strong>
                         </div>
                     {% endfor %}
@@ -98,5 +104,6 @@
             <p>Gracias por su visita.</p>
         </footer>
     </section>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

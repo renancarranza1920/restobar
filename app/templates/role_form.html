@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="filament-dashboard p-4 md:p-6">
+    <header class="page-header">
+        <div>
+            <p class="text-xs font-bold text-primary uppercase tracking-wide mb-1">Seguridad</p>
+            <h1 class="text-2xl font-bold text-gray-800">
+                <i class="fa-solid fa-shield-halved mr-2 text-muted"></i> {{ 'Nuevo rol' if is_new_role else role.nombre }}
+            </h1>
+            <p class="text-sm text-muted mt-1">Activa exactamente las acciones que este rol puede usar.</p>
+        </div>
+
+        <div class="page-actions">
+            <a class="button button-ghost hover-lift bg-white shadow-sm border-gray-200" href="{{ url_for('web.roles') }}">
+                <i class="fa-solid fa-arrow-left mr-2"></i> Roles
+            </a>
+        </div>
+    </header>
+
+    <form method="post" action="{{ url_for('web.crear_rol') if is_new_role else url_for('web.actualizar_rol', role_code=role.codigo) }}">
+        <section class="filament-content-grid">
+            <div class="filament-col">
+                <article class="panel mb-6">
+                    <div class="panel-header border-b bg-gray-50">
+                        <h2 class="panel-title font-bold">
+                            <i class="fa-solid fa-id-badge mr-2 text-muted"></i> Datos del rol
+                        </h2>
+                    </div>
+
+                    <div class="panel-body form-stack">
+                        <div>
+                            <label for="nombre" class="block text-sm font-bold text-gray-800 mb-2">Nombre visible</label>
+                            <input id="nombre" name="nombre" value="{{ role.nombre }}" required>
+                        </div>
+
+                        <div>
+                            <label for="codigo" class="block text-sm font-bold text-gray-800 mb-2">Codigo interno</label>
+                            <input
+                                id="codigo"
+                                name="codigo"
+                                value="{{ role.codigo }}"
+                                placeholder="ej: supervisor"
+                                {% if not is_new_role %}disabled{% endif %}
+                            >
+                            <p class="text-xs text-muted mt-1">Usa letras y numeros. Si lo dejas vacio, se genera desde el nombre.</p>
+                        </div>
+
+                        <div>
+                            <label for="descripcion" class="block text-sm font-bold text-gray-800 mb-2">Descripcion</label>
+                            <input id="descripcion" name="descripcion" value="{{ role.descripcion or '' }}">
+                        </div>
+
+                        <div class="inline-alert inline-alert-info">
+                            <i class="fa-solid fa-circle-info mr-2"></i>
+                            <span>Estos permisos controlan el menu, botones y acceso directo a las rutas.</span>
+                        </div>
+                    </div>
+                </article>
+            </div>
+
+            <div class="filament-col">
+                <article class="panel">
+                    <div class="panel-header border-b bg-gray-50">
+                        <div>
+                            <h2 class="panel-title font-bold">
+                                <i class="fa-solid fa-list-check mr-2 text-muted"></i> Permisos del sistema
+                            </h2>
+                            <p class="text-sm text-muted mt-1">Marca solo las acciones que este rol debe poder ejecutar.</p>
+                        </div>
+                    </div>
+
+                    <div class="panel-body">
+                        <div class="form-stack">
+                            {% for group, group_features in features|groupby("group") %}
+                                <div class="border border-gray-200 rounded-md bg-gray-light">
+                                    <div class="p-4 border-b bg-white">
+                                        <h3 class="font-bold text-sm text-gray-800">{{ group }}</h3>
+                                    </div>
+                                    <div class="p-4 form-stack">
+                                        {% for feature in group_features %}
+                                            <label class="flex items-start gap-3 cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    name="permisos"
+                                                    value="{{ feature.key }}"
+                                                    style="width:auto; margin-top: 0.2rem;"
+                                                    {% if feature.key in role.permisos %}checked{% endif %}
+                                                >
+                                                <div>
+                                                    <span class="block text-sm font-bold text-gray-800">{{ feature.label }}</span>
+                                                    <span class="block text-xs text-muted mt-1">{{ feature.description }}</span>
+                                                </div>
+                                            </label>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </article>
+            </div>
+        </section>
+
+        <div class="form-footer">
+            <span></span>
+            <div class="form-footer-actions">
+                <a href="{{ url_for('web.roles') }}" class="button button-ghost bg-white border-gray-200 shadow-sm">
+                    Cancelar
+                </a>
+                <button class="button button-primary shadow-sm hover-lift" type="submit">
+                    <i class="fa-solid fa-save mr-2"></i> Guardar permisos
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}

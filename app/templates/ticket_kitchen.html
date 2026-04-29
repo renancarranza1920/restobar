@@ -12,7 +12,10 @@
             <div>
                 <p class="ticket-eyebrow">Ticket de cocina</p>
                 <h1>{{ app_name }}</h1>
-                <p>Orden #{{ order.id }} | {{ order.created_at|datetime_short }}</p>
+                <p>
+                    Orden #{{ order.id }} |
+                    <span data-local-datetime="{{ order.created_at|datetime_iso }}">{{ order.created_at|datetime_short }}</span>
+                </p>
             </div>
             <div class="ticket-actions no-print">
                 <button class="button ticket-button" type="button" onclick="window.print()">Imprimir</button>
@@ -68,5 +71,6 @@
             <p>Preparar en el orden de llegada.</p>
         </footer>
     </section>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

@@ -13,6 +13,15 @@
     {% block head %}{% endblock %}
 </head>
 <body class="theme-{{ current_theme | default('light') }} filament-body {{ 'auth-body' if current_user.is_authenticated else 'guest-body' }}">
+    <script>
+        try {
+            if (window.localStorage.getItem("restobar:sidebar-collapsed") === "true") {
+                document.body.classList.add("sidebar-collapsed");
+            }
+        } catch (error) {
+            // Ignore storage restrictions.
+        }
+    </script>
     {% if current_user.is_authenticated %}
         <button class="mobile-nav-toggle shadow-sm" type="button" data-sidebar-open aria-label="Abrir menú">
             <i class="fa-solid fa-bars"></i>
@@ -32,6 +41,10 @@
                 <button class="sidebar-close" type="button" data-sidebar-close aria-label="Cerrar menú">
                     <i class="fa-solid fa-xmark"></i>
                 </button>
+                <button class="sidebar-collapse-toggle" type="button" data-sidebar-collapse-toggle aria-label="Ocultar menu" title="Ocultar menu">
+                    <i class="fa-solid fa-chevron-left"></i>
+                    <span class="sr-only">Ocultar menu</span>
+                </button>
             </div>
 
             <div class="sidebar-date-badge shadow-sm mt-4" data-local-current-date>
@@ -43,14 +56,15 @@
                     {% if nav_items %}
                         {% for item in nav_items %}
                             <li>
-                                <a href="{{ url_for(item.endpoint) }}" class="nav-link {{ 'is-active shadow-sm' if request.endpoint in item.active_endpoints else '' }}">
-                                    {{ item.label }}
+                                <a href="{{ url_for(item.endpoint) }}" class="nav-link {{ 'is-active shadow-sm' if request.endpoint in item.active_endpoints else '' }}" title="{{ item.label }}">
+                                    <i class="fa-solid {{ item.icon|default('fa-circle-dot') }} nav-link-icon" aria-hidden="true"></i>
+                                    <span class="nav-link-text">{{ item.label }}</span>
                                 </a>
                             </li>
                         {% endfor %}
                     {% else %}
-                        <li><a href="#" class="nav-link is-active">Inicio</a></li>
-                        <li><a href="#" class="nav-link">Operación</a></li>
+                        <li><a href="#" class="nav-link is-active" title="Inicio"><i class="fa-solid fa-house nav-link-icon" aria-hidden="true"></i><span class="nav-link-text">Inicio</span></a></li>
+                        <li><a href="#" class="nav-link" title="Operacion"><i class="fa-solid fa-layer-group nav-link-icon" aria-hidden="true"></i><span class="nav-link-text">Operacion</span></a></li>
                     {% endif %}
                 </ul>
             </nav>
@@ -79,6 +93,11 @@
                 {% endif %}
 
                 <div class="sidebar-actions">
+                    <a class="button button-ghost button-small button-full hover-lift border-gray-200 sidebar-action-button" href="{{ url_for('web.mi_seguridad') }}" title="Mi seguridad">
+                        <i class="fa-solid fa-key"></i>
+                        <span>Mi seguridad</span>
+                    </a>
+
                     <form method="post" action="{{ url_for('web.cambiar_tema') }}" style="flex: 1;">
                         <input type="hidden" name="theme" value="toggle">
                         <button class="button button-ghost button-small button-full hover-lift border-gray-200 sidebar-action-button" type="submit" title="Cambiar tema">

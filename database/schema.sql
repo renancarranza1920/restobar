@@ -4,15 +4,38 @@ CREATE DATABASE IF NOT EXISTS restobar
 USE restobar;
 SET NAMES utf8mb4;
 
+CREATE TABLE roles (
+    codigo VARCHAR(30) PRIMARY KEY,
+    nombre VARCHAR(80) NOT NULL,
+    descripcion VARCHAR(255) NULL,
+    permisos TEXT NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
 CREATE TABLE usuarios (
     id INT AUTO_INCREMENT PRIMARY KEY,
     nickname VARCHAR(50) UNIQUE NOT NULL,
     nombre VARCHAR(100) NOT NULL,
     apellido VARCHAR(100) NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
-    rol ENUM('dueño', 'cajero', 'mesero', 'cocina') NOT NULL,
+    rol VARCHAR(30) NOT NULL,
     activo BOOLEAN DEFAULT TRUE,
+    must_change_password BOOLEAN DEFAULT FALSE NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE audit_logs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    usuario_id INT NULL,
+    accion VARCHAR(80) NOT NULL,
+    entidad VARCHAR(80) NOT NULL,
+    entidad_id VARCHAR(80) NULL,
+    resumen VARCHAR(255) NULL,
+    detalles TEXT NULL,
+    ip_address VARCHAR(45) NULL,
+    user_agent VARCHAR(255) NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
 );
 
 CREATE TABLE zonas (
@@ -151,6 +174,8 @@ CREATE INDEX idx_mov_inv_producto ON movimientos_inventario(producto_id);
 CREATE INDEX idx_orden_divisiones_orden ON orden_divisiones(orden_id);
 CREATE INDEX idx_orden_division_items_division ON orden_division_items(division_id);
 CREATE INDEX idx_orden_division_items_item ON orden_division_items(orden_item_id);
+CREATE INDEX idx_audit_logs_created ON audit_logs(created_at);
+CREATE INDEX idx_audit_logs_usuario ON audit_logs(usuario_id);
 
 INSERT INTO zonas (nombre) VALUES ('Barra'), ('Patio');
 
@@ -161,5 +186,8 @@ INSERT INTO categorias (nombre, envia_a_cocina) VALUES
 ('Cigarros', FALSE),
 ('Otros', FALSE);
 
+INSERT INTO roles (codigo, nombre, descripcion, permisos) VALUES
+('administrador', 'Administrador', 'Acceso completo a todas las areas del sistema.', 'auditoria.view,caja.cancel_order,caja.charge,caja.close,caja.movements,caja.open,caja.view,categorias.create,categorias.delete,categorias.edit,categorias.view,cocina.prepare,cocina.view,dashboard.view,inventario.create,inventario.view,mesas.create,mesas.delete,mesas.edit,mesas.view,ordenes.cancel_item,ordenes.create,ordenes.deliver,ordenes.items,ordenes.ticket,ordenes.view,productos.availability,productos.create,productos.delete,productos.edit,productos.view,reportes.export,reportes.view,roles.create,roles.delete,roles.edit,roles.view,security.change_password,usuarios.create,usuarios.delete,usuarios.edit,usuarios.reset_password,usuarios.view,zonas.create,zonas.delete,zonas.edit,zonas.view');
+
 INSERT INTO usuarios (nickname, nombre, apellido, password_hash, rol) VALUES
-('admin', 'Admin', 'General', 'pbkdf2:sha256:cambiar_este_hash', 'dueño');
+('admin', 'Admin', 'General', 'pbkdf2:sha256:cambiar_este_hash', 'administrador');

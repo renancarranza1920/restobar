@@ -29,20 +29,36 @@
                 </div>
             </div>
 
-            <label for="rol">Rol</label>
-            <select id="rol" name="rol" required>
-                <option value="dueño" {% if user and user.rol == 'dueño' %}selected{% endif %}>Administrador</option>
-                <option value="cajero" {% if user and user.rol == 'cajero' %}selected{% endif %}>Cajero</option>
-                <option value="mesero" {% if user and user.rol == 'mesero' %}selected{% endif %}>Mesero</option>
-                <option value="cocina" {% if user and user.rol == 'cocina' %}selected{% endif %}>Cocina</option>
-            </select>
+            <div>
+                <label for="rol">Rol</label>
+                <select id="rol" name="rol" required>
+                    {% for role in roles %}
+                        <option value="{{ role.codigo }}" {% if user and user.rol == role.codigo %}selected{% endif %}>
+                            {{ role.nombre }}
+                        </option>
+                    {% endfor %}
+                </select>
+                <p class="text-xs text-muted mt-1">
+                    Puedes cambiar los permisos de cada rol desde Usuarios > Roles.
+                </p>
+            </div>
 
             <label for="password">{{ 'Nueva contrasena' if user else 'Contrasena inicial' }}</label>
             <input id="password" name="password" type="password" minlength="6" {% if not user %}required{% endif %}>
+            {% if user %}
+                <p class="text-xs text-muted mt-1">
+                    Si escribes una contrasena nueva, el usuario debera cambiarla al iniciar sesion.
+                </p>
+            {% endif %}
 
             <label class="checkbox-inline">
                 <input type="checkbox" name="activo" {% if not user or user.activo %}checked{% endif %}>
                 <span>Usuario activo</span>
+            </label>
+
+            <label class="checkbox-inline">
+                <input type="checkbox" name="must_change_password" {% if user and user.must_change_password %}checked{% endif %}>
+                <span>Forzar cambio de contrasena al proximo ingreso</span>
             </label>
 
             <button class="button button-primary button-full" type="submit">{{ 'Guardar cambios' if user else 'Crear usuario' }}</button>

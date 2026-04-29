@@ -1,3 +1,4 @@
+import json
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from functools import wraps
@@ -6,11 +7,12 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import current_app, flash, redirect, request, url_for
 from flask_login import current_user, login_required
-from sqlalchemy import inspect
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import joinedload, selectinload
 
 from .extensions import db
 from .models import (
+    AuditLog,
     Categoria,
     Mesa,
     MovimientoCaja,
@@ -21,6 +23,7 @@ from .models import (
     OrdenItem,
     Pago,
     Producto,
+    Rol,
     SesionCaja,
     Usuario,
     Zona,
@@ -31,48 +34,184 @@ from .models import (
 CENTAVOS = Decimal("0.01")
 ZERO = Decimal("0.00")
 LOW_STOCK_THRESHOLD = 5
-
-FEATURES_BY_ROLE = {
-    "dueño": {
-        "dashboard",
-        "mesas",
-        "zonas",
-        "categorias",
-        "ordenes",
-        "productos",
-        "caja",
-        "cocina",
-        "inventario",
-        "usuarios",
-        "reportes",
-    },
-    "cajero": {"dashboard", "mesas", "ordenes", "caja"},
-    "mesero": {"mesas", "ordenes"},
-    "cocina": {"cocina"},
+ADMIN_ROLE_CODE = "administrador"
+LEGACY_ADMIN_ROLE_CODES = {"due\u00f1o", "due\u00c3\u00b1o", "dueno"}
+MODULE_PERMISSION_ALIASES = {
+    "dashboard": "dashboard.view",
+    "mesas": "mesas.view",
+    "zonas": "zonas.view",
+    "categorias": "categorias.view",
+    "ordenes": "ordenes.view",
+    "productos": "productos.view",
+    "caja": "caja.view",
+    "cocina": "cocina.view",
+    "inventario": "inventario.view",
+    "usuarios": "usuarios.view",
+    "reportes": "reportes.view",
+    "auditoria": "auditoria.view",
 }
+
+FEATURE_DEFINITIONS = [
+    {
+        "key": "dashboard",
+        "label": "Inicio",
+        "description": "Ver resumen de ventas, métricas y alertas.",
+        "group": "General",
+    },
+    {
+        "key": "mesas",
+        "label": "Mesas",
+        "description": "Ver mesas, abrir órdenes y administrar limpieza.",
+        "group": "Operación",
+    },
+    {
+        "key": "zonas",
+        "label": "Zonas",
+        "description": "Crear, editar y eliminar zonas del restaurante.",
+        "group": "Configuración",
+    },
+    {
+        "key": "categorias",
+        "label": "Categorías",
+        "description": "Organizar categorías y definir si pasan por cocina.",
+        "group": "Catálogo",
+    },
+    {
+        "key": "ordenes",
+        "label": "Órdenes",
+        "description": "Ver órdenes, agregar productos y manejar items.",
+        "group": "Operación",
+    },
+    {
+        "key": "productos",
+        "label": "Productos",
+        "description": "Crear, editar, agotar y eliminar productos.",
+        "group": "Catálogo",
+    },
+    {
+        "key": "caja",
+        "label": "Caja",
+        "description": "Abrir/cerrar caja, cobrar órdenes y registrar movimientos.",
+        "group": "Finanzas",
+    },
+    {
+        "key": "cocina",
+        "label": "Cocina",
+        "description": "Ver comandas y marcar productos de cocina como listos.",
+        "group": "Operación",
+    },
+    {
+        "key": "inventario",
+        "label": "Inventario",
+        "description": "Ver stock y registrar compras, ventas o ajustes.",
+        "group": "Inventario",
+    },
+    {
+        "key": "usuarios",
+        "label": "Usuarios y roles",
+        "description": "Administrar usuarios, roles y permisos del sistema.",
+        "group": "Seguridad",
+    },
+    {
+        "key": "reportes",
+        "label": "Reportes",
+        "description": "Consultar y exportar reportes operativos y financieros.",
+        "group": "Finanzas",
+    },
+]
+
+PERMISSION_DEFINITIONS = [
+    {"key": "dashboard.view", "label": "Ver inicio", "description": "Ver el panel inicial adaptado al rol.", "group": "General"},
+    {"key": "mesas.view", "label": "Ver mesas", "description": "Consultar mesas, zonas ocupadas y limpieza.", "group": "Mesas"},
+    {"key": "mesas.create", "label": "Crear mesas", "description": "Registrar nuevas mesas.", "group": "Mesas"},
+    {"key": "mesas.edit", "label": "Editar mesas", "description": "Cambiar datos y estado de limpieza.", "group": "Mesas"},
+    {"key": "mesas.delete", "label": "Eliminar mesas", "description": "Borrar mesas sin historial.", "group": "Mesas"},
+    {"key": "zonas.view", "label": "Ver zonas", "description": "Consultar zonas del restaurante.", "group": "Configuracion"},
+    {"key": "zonas.create", "label": "Crear zonas", "description": "Registrar nuevas zonas.", "group": "Configuracion"},
+    {"key": "zonas.edit", "label": "Editar zonas", "description": "Actualizar nombres de zonas.", "group": "Configuracion"},
+    {"key": "zonas.delete", "label": "Eliminar zonas", "description": "Borrar zonas sin mesas asociadas.", "group": "Configuracion"},
+    {"key": "categorias.view", "label": "Ver categorias", "description": "Consultar grupos de productos.", "group": "Catalogo"},
+    {"key": "categorias.create", "label": "Crear categorias", "description": "Registrar nuevas categorias.", "group": "Catalogo"},
+    {"key": "categorias.edit", "label": "Editar categorias", "description": "Actualizar categorias y cocina.", "group": "Catalogo"},
+    {"key": "categorias.delete", "label": "Eliminar categorias", "description": "Borrar categorias sin productos.", "group": "Catalogo"},
+    {"key": "productos.view", "label": "Ver productos", "description": "Consultar catalogo, precios y disponibilidad.", "group": "Catalogo"},
+    {"key": "productos.create", "label": "Crear productos", "description": "Registrar nuevos productos.", "group": "Catalogo"},
+    {"key": "productos.edit", "label": "Editar productos", "description": "Actualizar datos, precios e imagenes.", "group": "Catalogo"},
+    {"key": "productos.availability", "label": "Cambiar disponibilidad", "description": "Marcar productos como disponibles o agotados.", "group": "Catalogo"},
+    {"key": "productos.delete", "label": "Eliminar productos", "description": "Borrar productos sin historial.", "group": "Catalogo"},
+    {"key": "ordenes.view", "label": "Ver ordenes", "description": "Consultar ordenes y detalle.", "group": "Ordenes"},
+    {"key": "ordenes.create", "label": "Crear ordenes", "description": "Abrir ordenes de mesa o para llevar.", "group": "Ordenes"},
+    {"key": "ordenes.items", "label": "Agregar productos", "description": "Agregar items a ordenes abiertas.", "group": "Ordenes"},
+    {"key": "ordenes.deliver", "label": "Entregar items", "description": "Marcar productos listos como entregados.", "group": "Ordenes"},
+    {"key": "ordenes.cancel_item", "label": "Cancelar items", "description": "Cancelar items no cobrados.", "group": "Ordenes"},
+    {"key": "ordenes.ticket", "label": "Ver tickets", "description": "Abrir tickets de venta o cocina.", "group": "Ordenes"},
+    {"key": "caja.view", "label": "Ver caja", "description": "Consultar caja, sesiones y movimientos.", "group": "Caja"},
+    {"key": "caja.open", "label": "Abrir caja", "description": "Iniciar sesion de caja.", "group": "Caja"},
+    {"key": "caja.close", "label": "Cerrar caja", "description": "Cerrar sesion de caja.", "group": "Caja"},
+    {"key": "caja.movements", "label": "Movimientos de caja", "description": "Registrar ingresos y egresos manuales.", "group": "Caja"},
+    {"key": "caja.charge", "label": "Cobrar ordenes", "description": "Registrar pagos y cuentas divididas.", "group": "Caja"},
+    {"key": "caja.cancel_order", "label": "Cancelar ordenes", "description": "Cancelar ordenes abiertas sin pagos.", "group": "Caja"},
+    {"key": "cocina.view", "label": "Ver cocina", "description": "Consultar comandas pendientes.", "group": "Cocina"},
+    {"key": "cocina.prepare", "label": "Preparar comandas", "description": "Marcar items de cocina como listos/entregados.", "group": "Cocina"},
+    {"key": "inventario.view", "label": "Ver inventario", "description": "Consultar stock y movimientos.", "group": "Inventario"},
+    {"key": "inventario.create", "label": "Registrar movimientos", "description": "Crear compras, ventas y ajustes.", "group": "Inventario"},
+    {"key": "reportes.view", "label": "Ver reportes", "description": "Consultar reportes operativos y financieros.", "group": "Reportes"},
+    {"key": "reportes.export", "label": "Exportar reportes", "description": "Descargar CSV y PDF.", "group": "Reportes"},
+    {"key": "usuarios.view", "label": "Ver usuarios", "description": "Consultar cuentas y roles.", "group": "Seguridad"},
+    {"key": "usuarios.create", "label": "Crear usuarios", "description": "Registrar cuentas nuevas.", "group": "Seguridad"},
+    {"key": "usuarios.edit", "label": "Editar usuarios", "description": "Actualizar datos, roles y estado.", "group": "Seguridad"},
+    {"key": "usuarios.delete", "label": "Eliminar usuarios", "description": "Eliminar cuentas sin movimientos.", "group": "Seguridad"},
+    {"key": "usuarios.reset_password", "label": "Resetear contrasenas", "description": "Cambiar contrasenas de otros usuarios.", "group": "Seguridad"},
+    {"key": "roles.view", "label": "Ver roles", "description": "Consultar roles y permisos.", "group": "Seguridad"},
+    {"key": "roles.create", "label": "Crear roles", "description": "Crear roles personalizados.", "group": "Seguridad"},
+    {"key": "roles.edit", "label": "Editar roles", "description": "Modificar permisos de roles.", "group": "Seguridad"},
+    {"key": "roles.delete", "label": "Eliminar roles", "description": "Eliminar roles sin usuarios.", "group": "Seguridad"},
+    {"key": "security.change_password", "label": "Cambiar contrasena propia", "description": "Actualizar la contrasena de la cuenta actual.", "group": "Seguridad"},
+    {"key": "auditoria.view", "label": "Ver auditoria", "description": "Consultar cambios importantes del sistema.", "group": "Auditoria"},
+]
+
+ALL_FEATURE_KEYS = {feature["key"] for feature in FEATURE_DEFINITIONS}
+ALL_PERMISSION_KEYS = {permission["key"] for permission in PERMISSION_DEFINITIONS}
+
+DEFAULT_ROLE_DETAILS = {
+    ADMIN_ROLE_CODE: {
+        "nombre": "Administrador",
+        "descripcion": "Acceso completo a todas las areas del sistema.",
+    },
+}
+
+DEFAULT_FEATURES_BY_ROLE = {
+    ADMIN_ROLE_CODE: set(ALL_PERMISSION_KEYS),
+}
+
+FEATURES_BY_ROLE = DEFAULT_FEATURES_BY_ROLE
 
 NAV_ITEMS = [
     {
         "feature": "dashboard",
         "label": "Inicio",
+        "icon": "fa-house",
         "endpoint": "web.dashboard",
         "active_endpoints": {"web.dashboard"},
     },
     {
         "feature": "mesas",
         "label": "Mesas",
+        "icon": "fa-chair",
         "endpoint": "web.mesas",
         "active_endpoints": {"web.mesas", "web.nueva_mesa", "web.editar_mesa"},
     },
     {
         "feature": "zonas",
         "label": "Zonas",
+        "icon": "fa-layer-group",
         "endpoint": "web.zonas",
         "active_endpoints": {"web.zonas", "web.nueva_zona", "web.editar_zona"},
     },
     {
         "feature": "categorias",
         "label": "Categorias",
+        "icon": "fa-tags",
         "endpoint": "web.categorias",
         "active_endpoints": {
             "web.categorias",
@@ -83,6 +222,7 @@ NAV_ITEMS = [
     {
         "feature": "ordenes",
         "label": "Órdenes",
+        "icon": "fa-receipt",
         "endpoint": "web.ordenes",
         "active_endpoints": {
             "web.ordenes",
@@ -94,6 +234,7 @@ NAV_ITEMS = [
     {
         "feature": "productos",
         "label": "Productos",
+        "icon": "fa-box-open",
         "endpoint": "web.productos",
         "active_endpoints": {
             "web.productos",
@@ -105,36 +246,54 @@ NAV_ITEMS = [
     {
         "feature": "caja",
         "label": "Caja",
+        "icon": "fa-cash-register",
         "endpoint": "web.caja",
         "active_endpoints": {"web.caja"},
     },
     {
         "feature": "reportes",
         "label": "Reportes",
+        "icon": "fa-chart-line",
         "endpoint": "web.reportes",
         "active_endpoints": {"web.reportes", "web.exportar_reporte"},
     },
     {
         "feature": "cocina",
         "label": "Cocina",
+        "icon": "fa-fire-burner",
         "endpoint": "web.cocina",
         "active_endpoints": {"web.cocina"},
     },
     {
         "feature": "inventario",
         "label": "Inventario",
+        "icon": "fa-boxes-stacked",
         "endpoint": "web.inventario",
         "active_endpoints": {"web.inventario", "web.nuevo_movimiento_inventario"},
     },
     {
         "feature": "usuarios",
         "label": "Usuarios",
+        "icon": "fa-users-gear",
         "endpoint": "web.usuarios",
         "active_endpoints": {
             "web.usuarios",
             "web.nuevo_usuario",
             "web.editar_usuario",
+            "web.roles",
+            "web.nuevo_rol",
+            "web.crear_rol",
+            "web.editar_rol",
+            "web.actualizar_rol",
+            "web.eliminar_rol",
         },
+    },
+    {
+        "feature": "auditoria",
+        "label": "Auditoria",
+        "icon": "fa-clock-rotate-left",
+        "endpoint": "web.auditoria",
+        "active_endpoints": {"web.auditoria"},
     },
 ]
 
@@ -214,13 +373,13 @@ def local_today():
 
 
 def role_label(role):
-    labels = {
-        "dueño": "Administrador",
-        "cajero": "Cajero",
-        "mesero": "Mesero",
-        "cocina": "Cocina",
-    }
-    return labels.get(role, role)
+    if role in LEGACY_ADMIN_ROLE_CODES:
+        return DEFAULT_ROLE_DETAILS[ADMIN_ROLE_CODE]["nombre"]
+    rol = get_role(role)
+    if rol:
+        return rol.nombre
+    details = DEFAULT_ROLE_DETAILS.get(role, {})
+    return details.get("nombre", role)
 
 
 def time_ago_label(value):
@@ -246,10 +405,95 @@ def time_ago_label(value):
     return f"{total_days} d"
 
 
+def feature_definitions():
+    return FEATURE_DEFINITIONS
+
+
+def permission_definitions():
+    return PERMISSION_DEFINITIONS
+
+
+def normalize_permission_key(permission):
+    return MODULE_PERMISSION_ALIASES.get(permission, permission)
+
+
+def expand_legacy_permissions(values):
+    expanded = set()
+    for value in values or []:
+        value = str(value).strip()
+        if not value:
+            continue
+        if value in MODULE_PERMISSION_ALIASES:
+            prefix = f"{value}."
+            expanded.update(
+                permission["key"]
+                for permission in PERMISSION_DEFINITIONS
+                if permission["key"].startswith(prefix)
+            )
+        elif value in ALL_PERMISSION_KEYS:
+            expanded.add(value)
+    return expanded
+
+
+def role_table_exists():
+    try:
+        return inspect(db.engine).has_table("roles")
+    except Exception:
+        return False
+
+
+def get_roles():
+    if role_table_exists():
+        roles = Rol.query.order_by(Rol.nombre.asc()).all()
+        if roles:
+            return roles
+
+    fallback_roles = []
+    for code, details in DEFAULT_ROLE_DETAILS.items():
+        rol = Rol(codigo=code, nombre=details["nombre"], descripcion=details["descripcion"])
+        rol.permisos = expand_legacy_permissions(DEFAULT_FEATURES_BY_ROLE.get(code, set()))
+        fallback_roles.append(rol)
+    return fallback_roles
+
+
+def get_role(role_code):
+    if not role_code:
+        return None
+    if role_table_exists():
+        rol = db.session.get(Rol, role_code)
+        if rol:
+            return rol
+    details = DEFAULT_ROLE_DETAILS.get(role_code)
+    if not details:
+        return None
+    rol = Rol(codigo=role_code, nombre=details["nombre"], descripcion=details["descripcion"])
+    rol.permisos = expand_legacy_permissions(DEFAULT_FEATURES_BY_ROLE.get(role_code, set()))
+    return rol
+
+
+def valid_role_code(role_code):
+    return get_role(role_code) is not None
+
+
+def permissions_for_role(role_code):
+    if role_code in LEGACY_ADMIN_ROLE_CODES:
+        return DEFAULT_FEATURES_BY_ROLE[ADMIN_ROLE_CODE]
+    rol = get_role(role_code)
+    if rol:
+        return expand_legacy_permissions(rol.permisos)
+    return expand_legacy_permissions(DEFAULT_FEATURES_BY_ROLE.get(role_code, set()))
+
+
 def user_can(user, feature):
     if not user or not getattr(user, "is_authenticated", False):
         return False
-    return feature in FEATURES_BY_ROLE.get(user.rol, set())
+    permissions = permissions_for_role(user.rol)
+    permission_key = normalize_permission_key(feature)
+    if permission_key in permissions:
+        return True
+    if feature in MODULE_PERMISSION_ALIASES:
+        return any(permission.startswith(f"{feature}.") for permission in permissions)
+    return False
 
 
 def navigation_for_user(user):
@@ -259,13 +503,21 @@ def navigation_for_user(user):
 def default_endpoint_for_user(user):
     if not user:
         return "web.login"
-    defaults = {
-        "dueño": "web.dashboard",
-        "cajero": "web.ordenes",
-        "mesero": "web.ordenes",
-        "cocina": "web.cocina",
-    }
-    return defaults.get(user.rol, "web.login")
+    preferred_endpoints = [
+        ("dashboard", "web.dashboard"),
+        ("ordenes", "web.ordenes"),
+        ("mesas", "web.mesas"),
+        ("caja", "web.caja"),
+        ("cocina", "web.cocina"),
+        ("productos", "web.productos"),
+        ("inventario", "web.inventario"),
+        ("reportes", "web.reportes"),
+        ("usuarios", "web.usuarios"),
+    ]
+    for feature, endpoint in preferred_endpoints:
+        if user_can(user, feature):
+            return endpoint
+    return "web.login"
 
 
 def feature_required(feature):
@@ -275,21 +527,6 @@ def feature_required(feature):
         def wrapped(*args, **kwargs):
             if not user_can(current_user, feature):
                 flash("No tienes permiso para entrar en esta sección.", "error")
-                return redirect(url_for(default_endpoint_for_user(current_user)))
-            return view(*args, **kwargs)
-
-        return wrapped
-
-    return decorator
-
-
-def roles_required(*roles):
-    def decorator(view):
-        @wraps(view)
-        @login_required
-        def wrapped(*args, **kwargs):
-            if current_user.rol not in roles:
-                flash("No tienes permiso para realizar esta acción.", "error")
                 return redirect(url_for(default_endpoint_for_user(current_user)))
             return view(*args, **kwargs)
 
@@ -329,7 +566,7 @@ def bootstrap_admin_account():
             nickname=admin_nickname,
             nombre="Admin",
             apellido="General",
-            rol="dueño",
+            rol=ADMIN_ROLE_CODE,
             activo=True,
         )
         admin.set_password(default_admin_password)
@@ -341,6 +578,107 @@ def bootstrap_admin_account():
 
     if changed:
         db.session.commit()
+
+
+def bootstrap_roles_permissions():
+    inspector = inspect(db.engine)
+    if not inspector.has_table("roles"):
+        Rol.__table__.create(db.engine)
+
+    changed = False
+    legacy_roles = Rol.query.filter(Rol.codigo.in_(LEGACY_ADMIN_ROLE_CODES)).all()
+    for legacy_role in legacy_roles:
+        db.session.delete(legacy_role)
+        changed = True
+
+    for code, details in DEFAULT_ROLE_DETAILS.items():
+        rol = db.session.get(Rol, code)
+        if rol is None:
+            rol = Rol(
+                codigo=code,
+                nombre=details["nombre"],
+                descripcion=details["descripcion"],
+            )
+            rol.permisos = DEFAULT_FEATURES_BY_ROLE.get(code, set())
+            db.session.add(rol)
+            changed = True
+        else:
+            if not rol.nombre:
+                rol.nombre = details["nombre"]
+                changed = True
+            if rol.permisos_csv is None:
+                rol.permisos = DEFAULT_FEATURES_BY_ROLE.get(code, set())
+                changed = True
+            expanded_permissions = expand_legacy_permissions(rol.permisos)
+            target_permissions = (
+                DEFAULT_FEATURES_BY_ROLE[ADMIN_ROLE_CODE]
+                if code == ADMIN_ROLE_CODE
+                else expanded_permissions
+            )
+            if target_permissions != rol.permisos:
+                rol.permisos = target_permissions
+                changed = True
+
+    seeded_role_codes = {"cajero", "mesero", "cocina"}
+    seeded_roles = Rol.query.filter(Rol.codigo.in_(seeded_role_codes)).all()
+    for seeded_role in seeded_roles:
+        db.session.delete(seeded_role)
+        changed = True
+
+    if changed:
+        db.session.commit()
+
+
+def bootstrap_security_schema():
+    inspector = inspect(db.engine)
+    if inspector.has_table("usuarios"):
+        user_columns = {column["name"] for column in inspector.get_columns("usuarios")}
+        if "must_change_password" not in user_columns:
+            db.session.execute(
+                text("ALTER TABLE usuarios ADD COLUMN must_change_password BOOLEAN DEFAULT FALSE NOT NULL")
+            )
+            db.session.commit()
+
+    if inspector.has_table("usuarios") and not inspector.has_table("audit_logs"):
+        AuditLog.__table__.create(db.engine)
+
+
+def audit_event(action, entity, entity_id=None, summary=None, details=None, commit=False):
+    try:
+        user_id = current_user.id if getattr(current_user, "is_authenticated", False) else None
+    except Exception:
+        user_id = None
+
+    request_details = {}
+    try:
+        request_details = {
+            "path": request.path,
+            "method": request.method,
+        }
+        ip_address = request.headers.get("X-Forwarded-For", request.remote_addr)
+        user_agent = (request.user_agent.string or "")[:255]
+    except RuntimeError:
+        ip_address = None
+        user_agent = None
+
+    payload = details or {}
+    if request_details:
+        payload = {**payload, "request": request_details}
+
+    log = AuditLog(
+        usuario_id=user_id,
+        accion=action,
+        entidad=entity,
+        entidad_id=str(entity_id) if entity_id is not None else None,
+        resumen=summary,
+        detalles_json=json.dumps(payload, ensure_ascii=False, default=str) if payload else None,
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+    db.session.add(log)
+    if commit:
+        db.session.commit()
+    return log
 
 
 def bootstrap_takeout_table():
@@ -1067,24 +1405,18 @@ def add_or_increment_order_item(order, product, quantity, notes=None):
 def item_can_be_prepared(user, item):
     if not user:
         return False
-    return item.requiere_cocina and item.estado == "pendiente" and user.rol in {
-        "dueño",
-        "cocina",
-    }
+    return item.requiere_cocina and item.estado == "pendiente" and user_can(user, "cocina.prepare")
 
 
 def item_can_be_delivered(user, item):
     if not user:
         return False
-    return item.requiere_cocina and item.estado == "listo" and user.rol in {
-        "dueño",
-        "mesero",
-    }
+    return item.requiere_cocina and item.estado == "listo" and user_can(user, "ordenes.deliver")
 
 
 def order_can_receive_payment(user, order):
-    if not user or user.rol not in {"dueño", "cajero"}:
-        return False, "Solo dueño o cajero pueden cobrar órdenes."
+    if not user or not user_can(user, "caja.charge"):
+        return False, "No tienes permiso de caja para cobrar órdenes."
     if order.estado != "abierta":
         return False, "La orden ya no está abierta para cobro."
     if not order.items_activos:
@@ -1095,8 +1427,8 @@ def order_can_receive_payment(user, order):
 
 
 def division_can_receive_payment(user, division):
-    if not user or user.rol not in {"dueño", "cajero"}:
-        return False, "Solo dueño o cajero pueden cobrar cuentas divididas."
+    if not user or not user_can(user, "caja.charge"):
+        return False, "No tienes permiso de caja para cobrar cuentas divididas."
     if division.pagada:
         return False, "Esa persona ya fue cobrada."
     if not division.items:

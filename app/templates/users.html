@@ -12,9 +12,26 @@
         </div>
 
         <div class="page-actions">
-            <a class="button button-primary hover-lift shadow-sm" href="{{ url_for('web.nuevo_usuario') }}">
-                <i class="fa-solid fa-plus mr-2"></i> Nuevo usuario
-            </a>
+            {% if user_can(current_user, 'auditoria.view') %}
+                <a class="button button-ghost hover-lift shadow-sm border-gray-200" href="{{ url_for('web.auditoria') }}">
+                    <i class="fa-solid fa-clock-rotate-left mr-2"></i> Auditoria
+                </a>
+            {% endif %}
+            {% if user_can(current_user, 'roles.view') %}
+                <a class="button button-ghost hover-lift shadow-sm border-gray-200" href="{{ url_for('web.roles') }}">
+                    <i class="fa-solid fa-shield-halved mr-2"></i> Roles
+                </a>
+            {% endif %}
+            {% if user_can(current_user, 'roles.create') %}
+                <a class="button button-ghost hover-lift shadow-sm border-gray-200" href="{{ url_for('web.nuevo_rol') }}">
+                    <i class="fa-solid fa-key mr-2"></i> Nuevo rol
+                </a>
+            {% endif %}
+            {% if user_can(current_user, 'usuarios.create') %}
+                <a class="button button-primary hover-lift shadow-sm" href="{{ url_for('web.nuevo_usuario') }}">
+                    <i class="fa-solid fa-plus mr-2"></i> Nuevo usuario
+                </a>
+            {% endif %}
         </div>
     </header>
 
@@ -40,17 +57,19 @@
                                         <span class="text-xs text-muted">{{ user.nickname }} · {{ role_label(user.rol) }}</span>
                                     </div>
 
-                                    <span class="badge {{ 'badge-pagada' if user.activo else 'badge-cancelada' }}">
-                                        {{ 'Activo' if user.activo else 'Inactivo' }}
+                                    <span class="badge {{ 'badge-pendiente' if user.must_change_password else ('badge-pagada' if user.activo else 'badge-cancelada') }}">
+                                        {{ 'Cambiar contrasena' if user.must_change_password else ('Activo' if user.activo else 'Inactivo') }}
                                     </span>
                                 </div>
                             </div>
 
                             <div class="entity-actions">
-                                <a class="button button-secondary button-small" href="{{ url_for('web.editar_usuario', user_id=user.id) }}">
-                                    <i class="fa-solid fa-pen mr-1"></i> Editar
-                                </a>
-                                {% if current_user.id != user.id %}
+                                {% if user_can(current_user, 'usuarios.edit') %}
+                                    <a class="button button-secondary button-small" href="{{ url_for('web.editar_usuario', user_id=user.id) }}">
+                                        <i class="fa-solid fa-pen mr-1"></i> Editar
+                                    </a>
+                                {% endif %}
+                                {% if current_user.id != user.id and user_can(current_user, 'usuarios.delete') %}
                                     <form method="post" action="{{ url_for('web.eliminar_usuario', user_id=user.id) }}">
                                         <button class="button button-ghost button-small text-danger border-danger" type="submit" data-confirm-title="Eliminar usuario" data-confirm-message="Se intentará eliminar la cuenta de {{ user.nombre_completo }}. Solo se puede si no tiene movimientos registrados.">
                                             <i class="fa-solid fa-trash"></i>
@@ -69,6 +88,45 @@
                     <p class="text-sm font-medium text-muted">Todavía no hay usuarios registrados.</p>
                 </div>
             {% endif %}
+        </div>
+    </article>
+
+    <article class="panel mt-6">
+        <div class="panel-header border-b bg-gray-50">
+            <div>
+                <h2 class="panel-title font-bold">
+                    <i class="fa-solid fa-key mr-2 text-muted"></i> Roles y permisos
+                </h2>
+                <p class="text-sm text-muted mt-1">Configura que modulos puede ver y usar cada rol.</p>
+            </div>
+        </div>
+
+        <div class="panel-body">
+            <div class="entity-list">
+                {% for role in roles %}
+                    <article class="entity-card">
+                        <div class="entity-main">
+                            <div class="entity-topline">
+                                <div>
+                                    <strong class="text-sm">{{ role.nombre }}</strong>
+                                    <span class="text-xs text-muted">{{ role.descripcion or 'Sin descripcion' }}</span>
+                                </div>
+                                <span class="badge bg-white shadow-sm border border-gray-200 text-muted">
+                                    {{ role.permisos|length }} permiso{{ '' if role.permisos|length == 1 else 's' }}
+                                </span>
+                            </div>
+                        </div>
+
+                        <div class="entity-actions">
+                            {% if user_can(current_user, 'roles.edit') %}
+                                <a class="button button-secondary button-small" href="{{ url_for('web.editar_rol', role_code=role.codigo) }}">
+                                    <i class="fa-solid fa-sliders mr-1"></i> Permisos
+                                </a>
+                            {% endif %}
+                        </div>
+                    </article>
+                {% endfor %}
+            </div>
         </div>
     </article>
 </div>

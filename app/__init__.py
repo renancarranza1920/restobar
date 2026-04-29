@@ -1,12 +1,14 @@
 from datetime import timezone
 
-from flask import Flask, session
+from flask import Flask, redirect, request, session, url_for
 from flask_login import current_user
 
 from .config import Config
 from .extensions import db, login_manager, migrate
 from .services import (
     bootstrap_admin_account,
+    bootstrap_roles_permissions,
+    bootstrap_security_schema,
     bootstrap_takeout_table,
     default_theme,
     get_active_cash_session,
@@ -38,6 +40,8 @@ def create_app():
     app.register_blueprint(api_bp)
 
     with app.app_context():
+        bootstrap_security_schema()
+        bootstrap_roles_permissions()
         bootstrap_admin_account()
         bootstrap_takeout_table()
 
@@ -92,13 +96,30 @@ def create_app():
             ),
             "active_session": (
                 get_active_cash_session()
-                if current_user.is_authenticated and user_can(current_user, "caja")
+                if current_user.is_authenticated and user_can(current_user, "caja.view")
                 else None
             ),
             "role_label": role_label,
             "user_can": user_can,
             "now_label": local_now().strftime("%d/%m/%Y"),
         }
+
+    @app.before_request
+    def require_password_change():
+        if not current_user.is_authenticated:
+            return None
+        if not getattr(current_user, "must_change_password", False):
+            return None
+        allowed_endpoints = {
+            "web.mi_seguridad",
+            "web.actualizar_mi_password",
+            "web.logout",
+            "web.cambiar_tema",
+            "static",
+        }
+        if request.endpoint in allowed_endpoints or (request.endpoint or "").startswith("static"):
+            return None
+        return redirect(url_for("web.mi_seguridad"))
 
     @app.shell_context_processor
     def make_shell_context():
