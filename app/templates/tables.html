@@ -21,26 +21,106 @@
         {% endif %}
     </header>
 
-    {% for zona in zonas %}
+    <section class="filament-stats-grid table-summary-grid mb-6">
+        <button class="stat-card panel hover-lift table-summary-card" type="button" data-table-modal-target="available" {% if table_summary.available == 0 %}disabled{% endif %}>
+            <div class="stat-header">
+                <div class="stat-icon bg-success-light text-success">
+                    <i class="fa-solid fa-chair"></i>
+                </div>
+                <h3 class="stat-label text-muted">Disponibles sin cuenta</h3>
+            </div>
+            <div class="stat-value mt-3">{{ table_summary.available }} / {{ table_summary.total }}</div>
+            <p class="stat-desc text-success mt-1 font-medium text-xs">Listas para abrir orden</p>
+        </button>
+
+        <button class="stat-card panel hover-lift table-summary-card" type="button" data-table-modal-target="zones" {% if table_summary.zones_with_available == 0 %}disabled{% endif %}>
+            <div class="stat-header">
+                <div class="stat-icon bg-primary-light text-primary">
+                    <i class="fa-solid fa-layer-group"></i>
+                </div>
+                <h3 class="stat-label text-muted">Zonas con mesas libres</h3>
+            </div>
+            <div class="stat-value mt-3">{{ table_summary.zones_with_available }}</div>
+            <p class="stat-desc text-primary mt-1 font-medium text-xs">Con al menos una mesa disponible</p>
+        </button>
+
+        <button class="stat-card panel hover-lift table-summary-card" type="button" data-table-modal-target="accounts" {% if table_summary.active_accounts == 0 %}disabled{% endif %}>
+            <div class="stat-header">
+                <div class="stat-icon bg-warning-light text-warning">
+                    <i class="fa-solid fa-receipt"></i>
+                </div>
+                <h3 class="stat-label text-muted">Cuentas abiertas</h3>
+            </div>
+            <div class="stat-value mt-3">{{ table_summary.active_accounts }}</div>
+            <p class="stat-desc text-warning mt-1 font-medium text-xs">{{ table_summary.occupied }} mesa{{ '' if table_summary.occupied == 1 else 's' }} ocupada{{ '' if table_summary.occupied == 1 else 's' }}</p>
+        </button>
+
+        <button class="stat-card panel hover-lift table-summary-card" type="button" data-table-modal-target="dirty" {% if table_summary.dirty == 0 %}disabled{% endif %}>
+            <div class="stat-header">
+                <div class="stat-icon bg-danger-light text-danger">
+                    <i class="fa-solid fa-broom"></i>
+                </div>
+                <h3 class="stat-label text-muted">Pendientes de limpieza</h3>
+            </div>
+            <div class="stat-value mt-3">{{ table_summary.dirty }}</div>
+            <p class="stat-desc text-danger mt-1 font-medium text-xs">Sin cuenta activa</p>
+        </button>
+
+        <button class="stat-card panel hover-lift table-summary-card table-summary-card-waitlist" type="button" data-table-modal-target="waitlist">
+            <div class="stat-header">
+                <div class="stat-icon bg-primary-light text-primary">
+                    <i class="fa-solid fa-clipboard-list"></i>
+                </div>
+                <h3 class="stat-label text-muted">Lista de espera</h3>
+            </div>
+            <div class="stat-value mt-3">{{ table_summary.waiting }}</div>
+            <p class="stat-desc text-primary mt-1 font-medium text-xs">Grupos por ubicar</p>
+        </button>
+    </section>
+
+    <section class="panel table-view-toolbar mb-4">
+        <div>
+            <p class="text-xs font-bold text-primary uppercase tracking-wide mb-1">Vista de mesas</p>
+            <h2 class="panel-title font-bold">Grid operativo o mapa visual</h2>
+        </div>
+        <div class="table-view-switch" data-table-view-switch aria-label="Cambiar vista de mesas">
+            <button class="table-view-button is-active" type="button" data-table-view-button="grid">
+                <i class="fa-solid fa-grip"></i> Grid
+            </button>
+            <button class="table-view-button" type="button" data-table-view-button="map">
+                <i class="fa-solid fa-map-location-dot"></i> Mapa visual
+            </button>
+        </div>
+    </section>
+
+    <div data-table-view-panel="grid">
+    {% for zone_card in zone_cards %}
+        {% set zona = zone_card.zona %}
         <article class="panel mb-6">
             <div class="panel-header border-b bg-gray-50 flex justify-between items-center">
                 <div>
                     <h2 class="panel-title font-bold flex items-center gap-2">
                         <i class="fa-solid fa-layer-group text-primary"></i> {{ zona.nombre }}
                     </h2>
-                    <p class="text-sm text-muted mt-1">Mesas registradas en esta zona.</p>
+                    <p class="text-sm text-muted mt-1">
+                        {{ zone_card.available }} disponible{{ '' if zone_card.available == 1 else 's' }} sin cuenta,
+                        {{ zone_card.active_accounts }} cuenta{{ '' if zone_card.active_accounts == 1 else 's' }} activa{{ '' if zone_card.active_accounts == 1 else 's' }}.
+                    </p>
                 </div>
-                <span class="badge bg-white shadow-sm border border-gray-200 text-muted">{{ zona.mesas|length }} mesas</span>
+                <div class="table-zone-badges">
+                    <span class="badge badge-pagada">{{ zone_card.available }} libres</span>
+                    <span class="badge bg-white shadow-sm border border-gray-200 text-muted">{{ zone_card.total }} mesas</span>
+                </div>
             </div>
 
             <div class="panel-body p-4 bg-gray-light">
-                {% if zona.mesas %}
+                {% if zone_card.tables %}
                     <div class="grid-mesas">
-                        {% for mesa in zona.mesas|sort(attribute='numero') %}
+                        {% for mesa in zone_card.tables %}
                             {% set table_orders = active_orders.get(mesa.id, []) %}
                             {% set order = table_orders[0] if table_orders else none %}
 
-                            <article class="panel hover-lift bg-white p-4 flex flex-col justify-between table-tile">
+                            <article class="panel hover-lift bg-white p-4 flex flex-col justify-between table-tile {{ 'table-tile-occupied' if table_orders else ('table-tile-dirty' if mesa.limpieza_estado == 'sucia' else 'table-tile-free') }}">
                                 <div class="flex justify-between items-start mb-4 gap-3">
                                     <div>
                                         <strong class="text-lg font-bold text-gray-800">{{ mesa.etiqueta }}</strong>
@@ -76,7 +156,7 @@
                                         </div>
                                     {% else %}
                                         <div class="text-xs text-muted flex items-center gap-2 opacity-70 pt-2">
-                                            <i class="fa-solid fa-mug-hot"></i> Mesa libre y lista
+                                            <i class="fa-solid fa-circle-check text-success"></i> Mesa disponible sin cuenta
                                         </div>
                                     {% endif %}
                                 </div>
@@ -87,7 +167,13 @@
                                             <a class="button button-secondary button-small flex-1 text-center" href="{{ url_for('web.detalle_orden', order_id=order.id) }}">
                                                 Ver ultima
                                             </a>
-                                            <form method="post" action="{{ url_for('web.crear_orden') }}" class="flex-1">
+                                            <form
+                                                method="post"
+                                                action="{{ url_for('web.crear_orden') }}"
+                                                class="flex-1"
+                                                data-confirm-title="Abrir otra cuenta"
+                                                data-confirm-message="{{ mesa.etiqueta }} ya tiene {{ table_orders|length }} cuenta{{ '' if table_orders|length == 1 else 's' }} activa{{ '' if table_orders|length == 1 else 's' }}. ¿Seguro que deseas abrir una cuenta separada?"
+                                            >
                                                 <input type="hidden" name="mesa_id" value="{{ mesa.id }}">
                                                 <button class="button button-primary button-small w-full" type="submit" {% if not cash_session or mesa.limpieza_estado != 'limpia' %}disabled{% endif %}>
                                                     <i class="fa-solid fa-user-plus mr-1"></i> Otra cuenta
@@ -140,5 +226,618 @@
             </div>
         </article>
     {% endfor %}
+    </div>
+
+    <div class="table-view-panel" data-table-view-panel="map" hidden>
+        <section class="table-map-board">
+            {% for zone_card in zone_cards %}
+                <article class="table-map-zone">
+                    <div class="table-map-zone-head">
+                        <div>
+                            <h3>{{ zone_card.zona.nombre }}</h3>
+                            <p>{{ zone_card.available }} libre{{ '' if zone_card.available == 1 else 's' }} / {{ zone_card.total }} mesa{{ '' if zone_card.total == 1 else 's' }}</p>
+                        </div>
+                        <span class="badge badge-pagada">{{ zone_card.available }} disponibles</span>
+                    </div>
+                    {% if zone_card.tables %}
+                        <div class="table-map-grid">
+                            {% for mesa in zone_card.tables %}
+                                {% set table_orders = active_orders.get(mesa.id, []) %}
+                                {% set latest_order = table_orders[0] if table_orders else none %}
+                                <article class="table-map-node {{ 'is-occupied' if table_orders else ('is-dirty' if mesa.limpieza_estado == 'sucia' else 'is-free') }}">
+                                    <div class="table-map-node-top">
+                                        <strong>{{ mesa.etiqueta }}</strong>
+                                        <span>#{{ mesa.numero }}</span>
+                                    </div>
+                                    <div class="table-map-shape">
+                                        <span class="table-map-center">
+                                            <i class="fa-solid {{ 'fa-receipt' if table_orders else ('fa-broom' if mesa.limpieza_estado == 'sucia' else 'fa-check') }}"></i>
+                                        </span>
+                                    </div>
+                                    <div class="table-map-node-meta">
+                                        {% if table_orders %}
+                                            <span>{{ table_orders|length }} cuenta{{ '' if table_orders|length == 1 else 's' }}</span>
+                                            <strong>{{ latest_order.nombre_cliente or 'Sin referencia' }}</strong>
+                                        {% elif mesa.limpieza_estado == 'sucia' %}
+                                            <span>Pendiente de limpieza</span>
+                                            <strong>No abrir aun</strong>
+                                        {% else %}
+                                            <span>Libre y limpia</span>
+                                            <strong>Sin cuenta</strong>
+                                        {% endif %}
+                                    </div>
+                                    <div class="table-map-actions">
+                                        {% if table_orders and latest_order %}
+                                            <a class="button button-secondary button-small" href="{{ url_for('web.detalle_orden', order_id=latest_order.id) }}">Ver</a>
+                                        {% endif %}
+                                        {% if user_can(current_user, 'ordenes.create') %}
+                                            <form
+                                                method="post"
+                                                action="{{ url_for('web.crear_orden') }}"
+                                                {% if table_orders %}
+                                                    data-confirm-title="Abrir otra cuenta"
+                                                    data-confirm-message="{{ mesa.etiqueta }} ya tiene {{ table_orders|length }} cuenta{{ '' if table_orders|length == 1 else 's' }} activa{{ '' if table_orders|length == 1 else 's' }}. Seguro que deseas abrir una cuenta separada?"
+                                                {% endif %}
+                                            >
+                                                <input type="hidden" name="mesa_id" value="{{ mesa.id }}">
+                                                <button class="button button-primary button-small" type="submit" {% if not cash_session or mesa.limpieza_estado != 'limpia' %}disabled{% endif %}>
+                                                    {{ 'Otra cuenta' if table_orders else 'Abrir' }}
+                                                </button>
+                                            </form>
+                                        {% endif %}
+                                    </div>
+                                </article>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="empty-state p-8 text-center">
+                            <p class="text-sm font-medium text-muted">Esta zona aun no tiene mesas registradas.</p>
+                        </div>
+                    {% endif %}
+                </article>
+            {% endfor %}
+        </section>
+    </div>
+
+    <div class="table-insight-modal" data-table-modal="waitlist" hidden>
+        <div class="table-insight-dialog table-insight-dialog-wide shadow-lg">
+            <div class="table-insight-header">
+                <div>
+                    <p class="text-xs font-bold text-primary uppercase tracking-wide mb-1">Lista de espera</p>
+                    <h2 class="panel-title font-bold">Grupos pendientes por ubicar</h2>
+                </div>
+                <button class="table-insight-close" type="button" data-table-modal-close aria-label="Cerrar">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="table-insight-body waitlist-modal-body">
+                {% if user_can(current_user, 'ordenes.create') %}
+                    <form class="waitlist-form waitlist-form-modal" method="post" action="{{ url_for('web.crear_lista_espera') }}">
+                        <div>
+                            <label class="block text-sm font-bold text-gray-800 mb-2" for="waitlist_nombre">Cliente o referencia</label>
+                            <input id="waitlist_nombre" name="nombre_cliente" placeholder="Ej. Maria, cumpleanos, barra" maxlength="100">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-bold text-gray-800 mb-2" for="waitlist_personas">Personas</label>
+                            <input id="waitlist_personas" name="personas" type="number" min="1" max="60" value="2" inputmode="numeric" required>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-bold text-gray-800 mb-2" for="waitlist_telefono">Telefono</label>
+                            <input id="waitlist_telefono" name="telefono" placeholder="Opcional" maxlength="40">
+                        </div>
+                        <div class="waitlist-notes-field">
+                            <label class="block text-sm font-bold text-gray-800 mb-2" for="waitlist_notas">Nota</label>
+                            <input id="waitlist_notas" name="notas" placeholder="Preferencia, cumpleanos, ubicacion, etc." maxlength="200">
+                        </div>
+                        <button class="button button-primary waitlist-submit" type="submit">
+                            <i class="fa-solid fa-plus mr-1"></i> Agregar
+                        </button>
+                    </form>
+                {% endif %}
+
+                <div class="waitlist-list">
+                    {% if waitlist_entries %}
+                        {% for entry in waitlist_entries %}
+                            <article class="waitlist-card waitlist-card-modal">
+                                <div class="waitlist-card-main">
+                                    <div class="waitlist-avatar">
+                                        <i class="fa-solid fa-users"></i>
+                                    </div>
+                                    <div>
+                                        <strong>{{ entry.nombre_cliente }}</strong>
+                                        <div class="waitlist-meta">
+                                            <span>{{ entry.personas }} persona{{ '' if entry.personas == 1 else 's' }}</span>
+                                            <span>Espera {{ entry.created_at|time_ago }}</span>
+                                            {% if entry.telefono %}
+                                                <span>{{ entry.telefono }}</span>
+                                            {% endif %}
+                                        </div>
+                                        {% if entry.notas %}
+                                            <p class="waitlist-note">{{ entry.notas }}</p>
+                                        {% endif %}
+                                    </div>
+                                </div>
+
+                                {% if user_can(current_user, 'ordenes.create') %}
+                                    <div class="waitlist-actions">
+                                        <button class="button button-primary button-small" type="button" data-table-modal-target="waitlist-seat-{{ entry.id }}" {% if not cash_session or table_summary.available == 0 %}disabled{% endif %}>
+                                            <i class="fa-solid fa-map-location-dot mr-1"></i> Elegir mesa
+                                        </button>
+                                        <form method="post" action="{{ url_for('web.cancelar_lista_espera', entry_id=entry.id) }}" data-confirm-title="Cancelar espera" data-confirm-message="Se retirara a {{ entry.nombre_cliente }} de la lista de espera.">
+                                            <button class="button button-ghost button-small" type="submit">
+                                                <i class="fa-solid fa-xmark mr-1"></i> Quitar
+                                            </button>
+                                        </form>
+                                    </div>
+                                {% endif %}
+                            </article>
+                        {% endfor %}
+                    {% else %}
+                        <div class="empty-state waitlist-empty">
+                            <div class="empty-icon bg-gray-light text-muted mx-auto mb-3">
+                                <i class="fa-solid fa-clipboard-check text-2xl"></i>
+                            </div>
+                            <p class="text-sm font-medium text-muted">No hay grupos esperando en este momento.</p>
+                        </div>
+                    {% endif %}
+
+                    {% if not cash_session %}
+                        <p class="inline-alert inline-alert-warning waitlist-cash-note">
+                            <i class="fa-solid fa-cash-register mr-2"></i> Puedes registrar espera, pero para sentar y abrir cuenta primero debes abrir caja.
+                        </p>
+                    {% elif table_summary.available == 0 and waitlist_entries %}
+                        <p class="inline-alert inline-alert-warning waitlist-cash-note">
+                            <i class="fa-solid fa-chair mr-2"></i> No hay mesas limpias y libres para sentar grupos ahora.
+                        </p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% for entry in waitlist_entries %}
+        <div class="table-insight-modal" data-table-modal="waitlist-seat-{{ entry.id }}" hidden>
+            <div class="table-insight-dialog table-insight-dialog-wide shadow-lg">
+                <div class="table-insight-header">
+                    <div>
+                        <p class="text-xs font-bold text-success uppercase tracking-wide mb-1">Ubicar grupo</p>
+                        <h2 class="panel-title font-bold">{{ entry.nombre_cliente }} - {{ entry.personas }} persona{{ '' if entry.personas == 1 else 's' }}</h2>
+                    </div>
+                    <button class="table-insight-close" type="button" data-table-modal-close aria-label="Cerrar">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+                <div class="table-insight-body">
+                    {% if table_summary.available %}
+                        <section class="table-map-board waitlist-seat-board">
+                            {% for zone_card in zone_cards %}
+                                {% if zone_card.available %}
+                                    <article class="table-map-zone">
+                                        <div class="table-map-zone-head">
+                                            <div>
+                                                <h3>{{ zone_card.zona.nombre }}</h3>
+                                                <p>{{ zone_card.available }} mesa{{ '' if zone_card.available == 1 else 's' }} limpia{{ '' if zone_card.available == 1 else 's' }} y libre{{ '' if zone_card.available == 1 else 's' }}</p>
+                                            </div>
+                                            <span class="badge badge-pagada">{{ zone_card.available }} disponibles</span>
+                                        </div>
+                                        <div class="table-map-grid waitlist-seat-grid">
+                                            {% for mesa in zone_card.tables %}
+                                                {% if not active_orders.get(mesa.id) and mesa.limpieza_estado == 'limpia' %}
+                                                    <form class="waitlist-seat-map-form" method="post" action="{{ url_for('web.sentar_lista_espera', entry_id=entry.id) }}">
+                                                        <input type="hidden" name="mesa_id" value="{{ mesa.id }}">
+                                                        <button class="table-map-node is-free waitlist-seat-node" type="submit">
+                                                            <span class="table-map-node-top">
+                                                                <strong>{{ mesa.etiqueta }}</strong>
+                                                                <span>#{{ mesa.numero }}</span>
+                                                            </span>
+                                                            <span class="table-map-shape">
+                                                                <span class="table-map-center">
+                                                                    <i class="fa-solid fa-check"></i>
+                                                                </span>
+                                                            </span>
+                                                            <span class="table-map-node-meta">
+                                                                <span>{{ mesa.zona.nombre if mesa.zona else 'Sin zona' }}</span>
+                                                                <strong>Sentar aqui</strong>
+                                                            </span>
+                                                        </button>
+                                                    </form>
+                                                {% endif %}
+                                            {% endfor %}
+                                        </div>
+                                    </article>
+                                {% endif %}
+                            {% endfor %}
+                        </section>
+                    {% else %}
+                        <div class="empty-state p-8 text-center">
+                            <div class="empty-icon bg-gray-light text-muted mx-auto mb-3">
+                                <i class="fa-solid fa-chair text-2xl"></i>
+                            </div>
+                            <p class="text-sm font-medium text-muted">No hay mesas disponibles para sentar este grupo.</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    {% endfor %}
+
+    <div class="table-insight-modal" data-table-modal="available" hidden>
+        <div class="table-insight-dialog shadow-lg">
+            <div class="table-insight-header">
+                <div>
+                    <p class="text-xs font-bold text-success uppercase tracking-wide mb-1">Mesas disponibles</p>
+                    <h2 class="panel-title font-bold">Libres y listas para abrir cuenta</h2>
+                </div>
+                <button class="table-insight-close" type="button" data-table-modal-close aria-label="Cerrar">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="table-insight-body">
+                {% if table_summary.available %}
+                    <div class="grid-mesas table-modal-grid">
+                        {% for zone_card in zone_cards %}
+                            {% for mesa in zone_card.tables %}
+                                {% if not active_orders.get(mesa.id) and mesa.limpieza_estado == 'limpia' %}
+                                    <article class="panel table-tile table-tile-free table-modal-tile">
+                                        <div class="flex justify-between items-start gap-3">
+                                            <div>
+                                                <strong class="text-lg font-bold text-gray-800">{{ mesa.etiqueta }}</strong>
+                                                <div class="text-xs text-muted">#{{ mesa.numero }} · {{ mesa.zona.nombre if mesa.zona else 'Sin zona' }}</div>
+                                            </div>
+                                            <span class="badge badge-pagada">Libre</span>
+                                        </div>
+                                        <div class="text-xs text-muted flex items-center gap-2">
+                                            <i class="fa-solid fa-circle-check text-success"></i> Sin cuenta activa
+                                        </div>
+                                        {% if user_can(current_user, 'ordenes') %}
+                                            <form method="post" action="{{ url_for('web.crear_orden') }}">
+                                                <input type="hidden" name="mesa_id" value="{{ mesa.id }}">
+                                                <button class="button button-primary button-small button-full" type="submit" {% if not cash_session %}disabled{% endif %}>
+                                                    <i class="fa-solid fa-plus mr-1"></i> Abrir cuenta
+                                                </button>
+                                            </form>
+                                        {% endif %}
+                                    </article>
+                                {% endif %}
+                            {% endfor %}
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="empty-state p-8 text-center">
+                        <div class="empty-icon bg-gray-light text-muted mx-auto mb-3">
+                            <i class="fa-solid fa-chair text-2xl"></i>
+                        </div>
+                        <p class="text-sm font-medium text-muted">No hay mesas limpias y libres ahora.</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="table-insight-modal" data-table-modal="zones" hidden>
+        <div class="table-insight-dialog table-insight-dialog-wide shadow-lg">
+            <div class="table-insight-header">
+                <div>
+                    <p class="text-xs font-bold text-primary uppercase tracking-wide mb-1">Zonas disponibles</p>
+                    <h2 class="panel-title font-bold">Mesas libres agrupadas por zona</h2>
+                </div>
+                <button class="table-insight-close" type="button" data-table-modal-close aria-label="Cerrar">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="table-insight-body">
+                {% if table_summary.zones_with_available %}
+                    <div class="table-zone-modal-list">
+                        {% for zone_card in zone_cards %}
+                            {% if zone_card.available %}
+                                <article class="panel table-zone-modal-section">
+                                    <div class="panel-header border-b bg-gray-50">
+                                        <div>
+                                            <h3 class="panel-title font-bold">
+                                                <i class="fa-solid fa-layer-group mr-2 text-primary"></i> {{ zone_card.zona.nombre }}
+                                            </h3>
+                                            <p class="text-sm text-muted mt-1">{{ zone_card.available }} mesa{{ '' if zone_card.available == 1 else 's' }} disponible{{ '' if zone_card.available == 1 else 's' }}.</p>
+                                        </div>
+                                        <span class="badge badge-pagada">{{ zone_card.available }} libres</span>
+                                    </div>
+                                    <div class="panel-body">
+                                        <div class="grid-mesas table-modal-grid">
+                                            {% for mesa in zone_card.tables %}
+                                                {% if not active_orders.get(mesa.id) and mesa.limpieza_estado == 'limpia' %}
+                                                    <article class="table-mini-card table-tile-free">
+                                                        <div>
+                                                            <strong>{{ mesa.etiqueta }}</strong>
+                                                            <span>#{{ mesa.numero }}</span>
+                                                        </div>
+                                                        {% if user_can(current_user, 'ordenes') %}
+                                                            <form method="post" action="{{ url_for('web.crear_orden') }}">
+                                                                <input type="hidden" name="mesa_id" value="{{ mesa.id }}">
+                                                                <button class="button button-primary button-small" type="submit" {% if not cash_session %}disabled{% endif %}>
+                                                                    Abrir
+                                                                </button>
+                                                            </form>
+                                                        {% endif %}
+                                                    </article>
+                                                {% endif %}
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                </article>
+                            {% endif %}
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="empty-state p-8 text-center">
+                        <p class="text-sm font-medium text-muted">No hay zonas con mesas libres ahora.</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="table-insight-modal" data-table-modal="accounts" hidden>
+        <div class="table-insight-dialog table-insight-dialog-wide shadow-lg">
+            <div class="table-insight-header">
+                <div>
+                    <p class="text-xs font-bold text-warning uppercase tracking-wide mb-1">Cuentas abiertas</p>
+                    <h2 class="panel-title font-bold">Mesas ocupadas y cuentas activas</h2>
+                </div>
+                <button class="table-insight-close" type="button" data-table-modal-close aria-label="Cerrar">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="table-insight-body">
+                {% if table_summary.active_accounts %}
+                    <div class="grid-mesas table-modal-grid">
+                        {% for zone_card in zone_cards %}
+                            {% for mesa in zone_card.tables %}
+                                {% set table_orders = active_orders.get(mesa.id, []) %}
+                                {% if table_orders %}
+                                    {% set latest_order = table_orders[0] %}
+                                    <article class="panel table-tile table-tile-occupied table-modal-tile">
+                                        <div class="flex justify-between items-start gap-3">
+                                            <div>
+                                                <strong class="text-lg font-bold text-gray-800">{{ mesa.etiqueta }}</strong>
+                                                <div class="text-xs text-muted">{{ mesa.zona.nombre if mesa.zona else 'Sin zona' }} · {{ table_orders|length }} cuenta{{ '' if table_orders|length == 1 else 's' }}</div>
+                                            </div>
+                                            <span class="badge badge-abierta">Ocupada</span>
+                                        </div>
+                                        <div class="table-open-orders">
+                                            {% for active_order in table_orders[:4] %}
+                                                <a class="table-open-order" href="{{ url_for('web.detalle_orden', order_id=active_order.id) }}">
+                                                    <span>
+                                                        <span class="text-xs text-muted">Orden #{{ active_order.id }}</span>
+                                                        <strong>{{ active_order.nombre_cliente or 'Sin referencia' }}</strong>
+                                                    </span>
+                                                    <strong class="text-success">{{ active_order.total|money }}</strong>
+                                                </a>
+                                            {% endfor %}
+                                        </div>
+                                        <div class="table-actions border-t pt-3 border-gray-100 mt-auto">
+                                            <a class="button button-secondary button-small flex-1 text-center" href="{{ url_for('web.detalle_orden', order_id=latest_order.id) }}">
+                                                Ver ultima
+                                            </a>
+                                            {% if user_can(current_user, 'ordenes') %}
+                                                <form
+                                                    method="post"
+                                                    action="{{ url_for('web.crear_orden') }}"
+                                                    class="flex-1"
+                                                    data-confirm-title="Abrir otra cuenta"
+                                                    data-confirm-message="{{ mesa.etiqueta }} ya tiene {{ table_orders|length }} cuenta{{ '' if table_orders|length == 1 else 's' }} activa{{ '' if table_orders|length == 1 else 's' }}. ¿Seguro que deseas abrir una cuenta separada?"
+                                                >
+                                                    <input type="hidden" name="mesa_id" value="{{ mesa.id }}">
+                                                    <button class="button button-primary button-small w-full" type="submit" {% if not cash_session or mesa.limpieza_estado != 'limpia' %}disabled{% endif %}>
+                                                        Otra cuenta
+                                                    </button>
+                                                </form>
+                                            {% endif %}
+                                        </div>
+                                    </article>
+                                {% endif %}
+                            {% endfor %}
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="empty-state p-8 text-center">
+                        <p class="text-sm font-medium text-muted">No hay cuentas abiertas en mesas.</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="table-insight-modal" data-table-modal="dirty" hidden>
+        <div class="table-insight-dialog table-insight-dialog-wide shadow-lg">
+            <div class="table-insight-header">
+                <div>
+                    <p class="text-xs font-bold text-danger uppercase tracking-wide mb-1">Limpieza</p>
+                    <h2 class="panel-title font-bold">Mesas pendientes de limpieza</h2>
+                </div>
+                <button class="table-insight-close" type="button" data-table-modal-close aria-label="Cerrar">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <form method="post" action="{{ url_for('web.limpiar_mesas_masivo') }}" data-dirty-clean-form data-confirm-title="Confirmar limpieza" data-confirm-message="Se marcaran como limpias las mesas seleccionadas.">
+                <div class="table-insight-body">
+                    {% if table_summary.dirty %}
+                        <div class="dirty-clean-toolbar">
+                            <span class="text-sm text-muted"><strong data-dirty-selected-count>0</strong> seleccionada{{ '' if table_summary.dirty == 1 else 's' }}</span>
+                            <div class="table-actions">
+                                <button class="button button-secondary button-small" type="button" data-select-all-dirty>
+                                    <i class="fa-solid fa-check-double mr-1"></i> Seleccionar todas
+                                </button>
+                                <button class="button button-ghost button-small" type="button" data-clear-dirty-selection>
+                                    Limpiar seleccion
+                                </button>
+                            </div>
+                        </div>
+                        <div class="grid-mesas table-modal-grid">
+                            {% for zone_card in zone_cards %}
+                                {% for mesa in zone_card.tables %}
+                                    {% if not active_orders.get(mesa.id) and mesa.limpieza_estado == 'sucia' %}
+                                        <label class="panel table-tile table-tile-dirty table-modal-tile dirty-select-card">
+                                            <input type="checkbox" name="mesa_ids" value="{{ mesa.id }}" data-dirty-table-checkbox>
+                                            <span class="dirty-check-icon"><i class="fa-solid fa-check"></i></span>
+                                            <span class="dirty-select-copy">
+                                                <strong class="text-lg font-bold text-gray-800">{{ mesa.etiqueta }}</strong>
+                                                <span class="text-xs text-muted">#{{ mesa.numero }} · {{ mesa.zona.nombre if mesa.zona else 'Sin zona' }}</span>
+                                                <span class="inline-alert inline-alert-warning">
+                                                    <i class="fa-solid fa-broom-ball mr-2"></i> Pendiente de limpieza
+                                                </span>
+                                            </span>
+                                        </label>
+                                    {% endif %}
+                                {% endfor %}
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="empty-state p-8 text-center">
+                            <div class="empty-icon bg-gray-light text-muted mx-auto mb-3">
+                                <i class="fa-solid fa-circle-check text-2xl"></i>
+                            </div>
+                            <p class="text-sm font-medium text-muted">No hay mesas pendientes de limpieza.</p>
+                        </div>
+                    {% endif %}
+                </div>
+                {% if table_summary.dirty %}
+                    <div class="table-insight-footer">
+                        <button class="button button-ghost" type="button" data-table-modal-close>Cancelar</button>
+                        <button class="button button-success" type="submit" data-dirty-submit disabled>
+                            <i class="fa-solid fa-broom mr-2"></i> Confirmar limpieza seleccionada
+                        </button>
+                    </div>
+                {% endif %}
+            </form>
+        </div>
+    </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+    {{ super() }}
+    <script>
+        (() => {
+            const modals = document.querySelectorAll("[data-table-modal]");
+            const modalByName = new Map(Array.from(modals).map((modal) => [modal.dataset.tableModal, modal]));
+            const viewButtons = Array.from(document.querySelectorAll("[data-table-view-button]"));
+            const viewPanels = Array.from(document.querySelectorAll("[data-table-view-panel]"));
+            const tableViewKey = "restobar:tables-view";
+
+            function setTableView(mode) {
+                const nextMode = mode === "map" ? "map" : "grid";
+                viewPanels.forEach((panel) => {
+                    panel.hidden = panel.dataset.tableViewPanel !== nextMode;
+                });
+                viewButtons.forEach((button) => {
+                    const active = button.dataset.tableViewButton === nextMode;
+                    button.classList.toggle("is-active", active);
+                    button.setAttribute("aria-pressed", active ? "true" : "false");
+                });
+                try {
+                    window.localStorage.setItem(tableViewKey, nextMode);
+                } catch (error) {
+                    // Ignore storage restrictions.
+                }
+            }
+
+            viewButtons.forEach((button) => {
+                button.addEventListener("click", () => setTableView(button.dataset.tableViewButton));
+            });
+
+            try {
+                setTableView(window.localStorage.getItem(tableViewKey) || "grid");
+            } catch (error) {
+                setTableView("grid");
+            }
+
+            function closeModal(modal) {
+                if (!modal) {
+                    return;
+                }
+                modal.hidden = true;
+                const hasOpenModal = Array.from(modals).some((item) => !item.hidden);
+                document.body.classList.toggle("modal-open", hasOpenModal);
+            }
+
+            function openModal(name) {
+                const modal = modalByName.get(name);
+                if (!modal) {
+                    return;
+                }
+                modal.hidden = false;
+                document.body.classList.add("modal-open");
+                modal.querySelector("[data-table-modal-close]")?.focus();
+            }
+
+            const initialModal = new URLSearchParams(window.location.search).get("modal");
+            if (initialModal && modalByName.has(initialModal)) {
+                openModal(initialModal);
+            }
+
+            document.addEventListener("click", (event) => {
+                const trigger = event.target.closest("[data-table-modal-target]");
+                if (trigger && !trigger.disabled) {
+                    openModal(trigger.dataset.tableModalTarget);
+                    return;
+                }
+
+                const closeButton = event.target.closest("[data-table-modal-close]");
+                if (closeButton) {
+                    closeModal(closeButton.closest("[data-table-modal]"));
+                    return;
+                }
+
+                const modal = event.target.closest("[data-table-modal]");
+                if (modal && event.target === modal) {
+                    closeModal(modal);
+                }
+            });
+
+            document.addEventListener("keydown", (event) => {
+                if (event.key !== "Escape") {
+                    return;
+                }
+                modals.forEach(closeModal);
+            });
+
+            const dirtyForm = document.querySelector("[data-dirty-clean-form]");
+            if (!dirtyForm) {
+                return;
+            }
+
+            const checkboxes = Array.from(dirtyForm.querySelectorAll("[data-dirty-table-checkbox]"));
+            const selectedCount = dirtyForm.querySelector("[data-dirty-selected-count]");
+            const submitButton = dirtyForm.querySelector("[data-dirty-submit]");
+
+            function syncDirtySelection() {
+                const count = checkboxes.filter((checkbox) => checkbox.checked).length;
+                if (selectedCount) {
+                    selectedCount.textContent = String(count);
+                }
+                if (submitButton) {
+                    submitButton.disabled = count === 0;
+                }
+            }
+
+            dirtyForm.querySelector("[data-select-all-dirty]")?.addEventListener("click", () => {
+                checkboxes.forEach((checkbox) => {
+                    checkbox.checked = true;
+                });
+                syncDirtySelection();
+            });
+
+            dirtyForm.querySelector("[data-clear-dirty-selection]")?.addEventListener("click", () => {
+                checkboxes.forEach((checkbox) => {
+                    checkbox.checked = false;
+                });
+                syncDirtySelection();
+            });
+
+            checkboxes.forEach((checkbox) => {
+                checkbox.addEventListener("change", syncDirtySelection);
+            });
+
+            syncDirtySelection();
+        })();
+    </script>
 {% endblock %}

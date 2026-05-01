@@ -11,6 +11,7 @@ from .services import (
     bootstrap_security_schema,
     bootstrap_system_preferences,
     bootstrap_takeout_table,
+    bootstrap_waitlist_schema,
     business_initial,
     format_local_datetime,
     get_active_cash_session,
@@ -45,6 +46,7 @@ def create_app():
     with app.app_context():
         bootstrap_security_schema()
         bootstrap_system_preferences()
+        bootstrap_waitlist_schema()
         bootstrap_roles_permissions()
         bootstrap_admin_account()
         bootstrap_takeout_table()

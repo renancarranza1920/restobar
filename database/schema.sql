@@ -59,6 +59,21 @@ CREATE TABLE mesas (
     FOREIGN KEY (zona_id) REFERENCES zonas(id)
 );
 
+CREATE TABLE lista_espera (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    nombre_cliente VARCHAR(100) NOT NULL,
+    personas INT NOT NULL DEFAULT 1,
+    telefono VARCHAR(40) NULL,
+    notas VARCHAR(200) NULL,
+    estado ENUM('esperando', 'sentado', 'cancelado') DEFAULT 'esperando' NOT NULL,
+    mesa_id INT NULL,
+    usuario_id INT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    closed_at TIMESTAMP NULL,
+    FOREIGN KEY (mesa_id) REFERENCES mesas(id),
+    FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
+);
+
 CREATE TABLE categorias (
     id INT AUTO_INCREMENT PRIMARY KEY,
     nombre VARCHAR(50) NOT NULL,
@@ -182,6 +197,7 @@ CREATE INDEX idx_orden_division_items_division ON orden_division_items(division_
 CREATE INDEX idx_orden_division_items_item ON orden_division_items(orden_item_id);
 CREATE INDEX idx_audit_logs_created ON audit_logs(created_at);
 CREATE INDEX idx_audit_logs_usuario ON audit_logs(usuario_id);
+CREATE INDEX idx_lista_espera_estado ON lista_espera(estado, created_at);
 
 INSERT INTO zonas (nombre) VALUES ('Barra'), ('Patio');
 

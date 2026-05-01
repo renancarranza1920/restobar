@@ -118,8 +118,9 @@
                                 <label for="mesa_id" class="block text-sm font-bold text-gray-800 mb-2">Mesa</label>
                                 <select id="mesa_id" name="mesa_id" class="w-full rounded-md shadow-sm border-gray-200 p-2" required>
                                     {% for mesa in available_tables %}
-                                        <option value="{{ mesa.id }}">
-                                            {{ mesa.etiqueta }} | {{ mesa.zona.nombre if mesa.zona else 'Sin zona' }}{% if mesa.estado == 'ocupada' %} | ocupada, cuenta separada{% endif %}
+                                        {% set table_orders = active_orders.get(mesa.id, []) if active_orders else [] %}
+                                        <option value="{{ mesa.id }}" data-active-order-count="{{ table_orders|length }}" data-table-label="{{ mesa.etiqueta }}">
+                                            {{ mesa.etiqueta }} | {{ mesa.zona.nombre if mesa.zona else 'Sin zona' }}{% if table_orders %} | ocupada, {{ table_orders|length }} cuenta{{ '' if table_orders|length == 1 else 's' }} activa{{ '' if table_orders|length == 1 else 's' }}{% endif %}
                                         </option>
                                     {% endfor %}
                                 </select>
@@ -185,6 +186,26 @@
             const customerInput = document.getElementById("nombre_cliente");
             const takeoutTableId = "999";
 
+            function syncMultipleAccountWarning() {
+                const takeoutSelected = form.querySelector("[data-service-radio][value='takeout']")?.checked;
+                const selectedOption = mesaSelect?.selectedOptions?.[0];
+                const activeOrderCount = Number.parseInt(selectedOption?.dataset.activeOrderCount || "0", 10);
+                const tableLabel = selectedOption?.dataset.tableLabel || "esta mesa";
+
+                if (!takeoutSelected && activeOrderCount > 0) {
+                    const plural = activeOrderCount === 1 ? "" : "s";
+                    form.setAttribute("data-confirm-title", "Abrir otra cuenta");
+                    form.setAttribute(
+                        "data-confirm-message",
+                        `${tableLabel} ya tiene ${activeOrderCount} cuenta${plural} activa${plural}. ¿Seguro que deseas abrir una cuenta separada?`
+                    );
+                    return;
+                }
+
+                form.removeAttribute("data-confirm-title");
+                form.removeAttribute("data-confirm-message");
+            }
+
             function syncOrderMode() {
                 const takeoutSelected = form.querySelector("[data-service-radio][value='takeout']")?.checked;
 
@@ -213,11 +234,14 @@
                     option.classList.toggle("button-ghost", !active);
                     option.classList.toggle("border-gray-200", !active);
                 });
+
+                syncMultipleAccountWarning();
             }
 
             serviceRadios.forEach((radio) => {
                 radio.addEventListener("change", syncOrderMode);
             });
+            mesaSelect?.addEventListener("change", syncMultipleAccountWarning);
 
             syncOrderMode();
         })();

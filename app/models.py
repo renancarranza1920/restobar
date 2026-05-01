@@ -39,6 +39,7 @@ class Usuario(UserMixin, db.Model):
     movimientos_inventario = db.relationship(
         "MovimientoInventario", back_populates="usuario", lazy=True
     )
+    lista_espera = db.relationship("ListaEspera", back_populates="usuario", lazy=True)
 
     @property
     def nombre_completo(self):
@@ -190,6 +191,7 @@ class Mesa(db.Model):
 
     zona = db.relationship("Zona", back_populates="mesas", lazy=True)
     ordenes = db.relationship("Orden", back_populates="mesa", lazy=True)
+    lista_espera = db.relationship("ListaEspera", back_populates="mesa", lazy=True)
 
     @property
     def etiqueta(self):
@@ -205,6 +207,47 @@ class Mesa(db.Model):
             "limpieza_estado": self.limpieza_estado,
             "zona_id": self.zona_id,
             "zona": self.zona.nombre if self.zona else None,
+        }
+
+
+class ListaEspera(db.Model):
+    __tablename__ = "lista_espera"
+
+    id = db.Column(db.Integer, primary_key=True)
+    nombre_cliente = db.Column(db.String(100), nullable=False)
+    personas = db.Column(db.Integer, default=1, nullable=False)
+    telefono = db.Column(db.String(40))
+    notas = db.Column(db.String(200))
+    estado = db.Column(
+        db.Enum("esperando", "sentado", "cancelado", name="lista_espera_estado"),
+        default="esperando",
+        nullable=False,
+    )
+    mesa_id = db.Column(db.Integer, db.ForeignKey("mesas.id"), nullable=True)
+    usuario_id = db.Column(db.Integer, db.ForeignKey("usuarios.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    closed_at = db.Column(db.DateTime)
+
+    mesa = db.relationship("Mesa", back_populates="lista_espera", lazy=True)
+    usuario = db.relationship("Usuario", back_populates="lista_espera", lazy=True)
+
+    @property
+    def etiqueta_personas(self):
+        return f"{self.personas} persona{'' if self.personas == 1 else 's'}"
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "nombre_cliente": self.nombre_cliente,
+            "personas": self.personas,
+            "telefono": self.telefono,
+            "notas": self.notas,
+            "estado": self.estado,
+            "mesa_id": self.mesa_id,
+            "mesa": self.mesa.etiqueta if self.mesa else None,
+            "usuario": self.usuario.nombre_completo if self.usuario else None,
+            "created_at": self.created_at.isoformat(),
+            "closed_at": self.closed_at.isoformat() if self.closed_at else None,
         }
 
 

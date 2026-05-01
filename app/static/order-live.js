@@ -10,6 +10,7 @@
     const divisionCards = root.querySelector("[data-order-division-cards]");
     const chargeStatus = root.querySelector("[data-order-charge-status]");
     const deliveredCount = root.querySelector("[data-order-delivered-count]");
+    const quickOrderPanel = root.querySelector("[data-quick-order]");
     const confirmModal = document.querySelector("[data-confirm-modal]");
     const paymentModal = document.querySelector("[data-payment-modal]");
 
@@ -40,6 +41,10 @@
             }
 
             const data = await response.json();
+
+            if (quickOrderPanel && data.order_state && data.order_state !== "abierta") {
+                quickOrderPanel.remove();
+            }
 
             if (itemsPanel && canReplace(itemsPanel) && itemsPanel.innerHTML !== data.items_html) {
                 itemsPanel.innerHTML = data.items_html;

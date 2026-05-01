@@ -38,6 +38,7 @@ from .extensions import db
 from .models import (
     AuditLog,
     Categoria,
+    ListaEspera,
     Mesa,
     MovimientoCaja,
     MovimientoInventario,
@@ -68,6 +69,7 @@ from .services import (
     feature_definitions,
     format_local_datetime,
     get_system_preferences,
+    get_waitlist_entries,
     permission_definitions,
     get_active_cash_session,
     get_active_order_for_mesa,
@@ -951,7 +953,12 @@ def actualizar_preferencias():
 @feature_required("dashboard.view")
 def dashboard():
     snapshot = get_dashboard_snapshot()
-    return render_template("dashboard.html", page_title="Inicio", **snapshot)
+    return render_template(
+        "dashboard.html",
+        page_title="Inicio",
+        dashboard_date=local_today().isoformat(),
+        **snapshot,
+    )
 
 
 @web_bp.get("/zonas")
@@ -1532,13 +1539,193 @@ def auditoria():
 @feature_required("mesas.view")
 def mesas():
     zonas, active_orders = grouped_tables()
+    waitlist_entries = get_waitlist_entries()
+    zone_cards = []
+    table_summary = {
+        "total": 0,
+        "available": 0,
+        "occupied": 0,
+        "active_accounts": 0,
+        "dirty": 0,
+        "zones_with_available": 0,
+        "waiting": len(waitlist_entries),
+    }
+
+    for zona in zonas:
+        tables = list(zona.mesas)
+        ordered_tables = sorted(
+            tables,
+            key=lambda mesa: (
+                2
+                if active_orders.get(mesa.id)
+                else 1
+                if mesa.limpieza_estado != "limpia"
+                else 0,
+                mesa.numero,
+                mesa.etiqueta,
+            ),
+        )
+        available_count = sum(
+            1
+            for mesa in tables
+            if not active_orders.get(mesa.id) and mesa.limpieza_estado == "limpia"
+        )
+        occupied_count = sum(1 for mesa in tables if active_orders.get(mesa.id))
+        dirty_count = sum(
+            1
+            for mesa in tables
+            if not active_orders.get(mesa.id) and mesa.limpieza_estado == "sucia"
+        )
+        active_account_count = sum(len(active_orders.get(mesa.id, [])) for mesa in tables)
+
+        zone_cards.append(
+            {
+                "zona": zona,
+                "tables": ordered_tables,
+                "total": len(tables),
+                "available": available_count,
+                "occupied": occupied_count,
+                "active_accounts": active_account_count,
+                "dirty": dirty_count,
+            }
+        )
+
+        table_summary["total"] += len(tables)
+        table_summary["available"] += available_count
+        table_summary["occupied"] += occupied_count
+        table_summary["active_accounts"] += active_account_count
+        table_summary["dirty"] += dirty_count
+        if available_count:
+            table_summary["zones_with_available"] += 1
+
     return render_template(
         "tables.html",
         page_title="Mesas",
         zonas=zonas,
+        zone_cards=zone_cards,
+        table_summary=table_summary,
         active_orders=active_orders,
+        waitlist_entries=waitlist_entries,
         cash_session=get_active_cash_session(),
     )
+
+
+@web_bp.post("/lista-espera")
+@feature_required("ordenes.create")
+def crear_lista_espera():
+    waitlist_url = url_for("web.mesas", modal="waitlist")
+    personas = parse_int(request.form.get("personas"))
+    nombre_cliente = (request.form.get("nombre_cliente") or "").strip()
+    telefono = (request.form.get("telefono") or "").strip()
+    notas = (request.form.get("notas") or "").strip()
+
+    if personas <= 0 or personas > 60:
+        flash("Indica para cuantas personas es el grupo en espera.", "error")
+        return redirect(waitlist_url)
+
+    if not nombre_cliente:
+        nombre_cliente = f"Grupo de {personas}"
+
+    entry = ListaEspera(
+        nombre_cliente=nombre_cliente[:100],
+        personas=personas,
+        telefono=telefono[:40] or None,
+        notas=notas[:200] or None,
+        usuario_id=current_user.id,
+    )
+    db.session.add(entry)
+    audit_event(
+        "crear",
+        "lista_espera",
+        None,
+        f"Se agrego {entry.nombre_cliente} a lista de espera.",
+        {"personas": personas},
+    )
+    db.session.commit()
+
+    flash(f"{entry.nombre_cliente} quedo en lista de espera para {entry.etiqueta_personas}.", "success")
+    return redirect(waitlist_url)
+
+
+@web_bp.post("/lista-espera/<int:entry_id>/cancelar")
+@feature_required("ordenes.create")
+def cancelar_lista_espera(entry_id):
+    waitlist_url = url_for("web.mesas", modal="waitlist")
+    entry = db.session.get(ListaEspera, entry_id)
+    if entry is None:
+        flash("La entrada de lista de espera no existe.", "error")
+        return redirect(waitlist_url)
+    if entry.estado != "esperando":
+        flash("Ese grupo ya no esta esperando.", "warning")
+        return redirect(waitlist_url)
+
+    entry.estado = "cancelado"
+    entry.closed_at = datetime.utcnow()
+    audit_event(
+        "cancelar",
+        "lista_espera",
+        entry.id,
+        f"Se cancelo la espera de {entry.nombre_cliente}.",
+        {"personas": entry.personas},
+    )
+    db.session.commit()
+
+    flash(f"Se retiro a {entry.nombre_cliente} de la lista de espera.", "success")
+    return redirect(waitlist_url)
+
+
+@web_bp.post("/lista-espera/<int:entry_id>/sentar")
+@feature_required("ordenes.create")
+def sentar_lista_espera(entry_id):
+    waitlist_url = url_for("web.mesas", modal="waitlist")
+    entry = db.session.get(ListaEspera, entry_id)
+    if entry is None:
+        flash("La entrada de lista de espera no existe.", "error")
+        return redirect(waitlist_url)
+    if entry.estado != "esperando":
+        flash("Ese grupo ya no esta esperando.", "warning")
+        return redirect(waitlist_url)
+
+    cash_session = get_active_cash_session()
+    if cash_session is None:
+        flash("Primero abre caja para poder sentar grupos y crear ordenes.", "error")
+        return redirect(url_for("web.caja"))
+
+    mesa_id = parse_int(request.form.get("mesa_id"))
+    mesa = db.session.get(Mesa, mesa_id)
+    if mesa is None or mesa.id == current_app.config["TAKEOUT_TABLE_ID"]:
+        flash("Selecciona una mesa valida para sentar al grupo.", "error")
+        return redirect(waitlist_url)
+    if mesa.limpieza_estado == "sucia":
+        flash("No puedes sentar un grupo en una mesa marcada como sucia.", "warning")
+        return redirect(waitlist_url)
+    if get_active_order_for_mesa(mesa.id):
+        flash("Selecciona una mesa libre para sentar a un grupo de lista de espera.", "warning")
+        return redirect(waitlist_url)
+
+    order = Orden(
+        mesa_id=mesa.id,
+        sesion_caja_id=cash_session.id,
+        usuario_id=current_user.id,
+        nombre_cliente=entry.nombre_cliente,
+    )
+    mesa.estado = "ocupada"
+    entry.estado = "sentado"
+    entry.mesa_id = mesa.id
+    entry.closed_at = datetime.utcnow()
+
+    db.session.add(order)
+    audit_event(
+        "sentar",
+        "lista_espera",
+        entry.id,
+        f"Se sento {entry.nombre_cliente} en {mesa.etiqueta}.",
+        {"mesa_id": mesa.id, "personas": entry.personas},
+    )
+    db.session.commit()
+
+    flash(f"{entry.nombre_cliente} fue sentado en {mesa.etiqueta}: orden #{order.id}.", "success")
+    return redirect(url_for("web.detalle_orden", order_id=order.id))
 
 
 @web_bp.get("/mesas/nueva")
@@ -1669,6 +1856,49 @@ def actualizar_limpieza_mesa(mesa_id):
     return redirect(request.referrer or url_for("web.mesas"))
 
 
+@web_bp.post("/mesas/limpieza/masiva")
+@feature_required("mesas.edit")
+def limpiar_mesas_masivo():
+    mesa_ids = {
+        parse_int(value)
+        for value in request.form.getlist("mesa_ids")
+        if parse_int(value) > 0
+    }
+    if not mesa_ids:
+        flash("Selecciona al menos una mesa sucia para limpiar.", "warning")
+        return redirect(request.referrer or url_for("web.mesas"))
+
+    mesas = (
+        Mesa.query.filter(Mesa.id.in_(mesa_ids))
+        .filter(Mesa.limpieza_estado == "sucia")
+        .filter(Mesa.estado != "ocupada")
+        .all()
+    )
+    if not mesas:
+        flash("No hay mesas seleccionadas que puedan marcarse como limpias.", "warning")
+        return redirect(request.referrer or url_for("web.mesas"))
+
+    cleaned_labels = []
+    for mesa in mesas:
+        mesa.limpieza_estado = "limpia"
+        cleaned_labels.append(mesa.etiqueta)
+
+    audit_event(
+        "limpieza_masiva",
+        "mesa",
+        ",".join(str(mesa.id) for mesa in mesas),
+        f"Se marcaron {len(mesas)} mesas como limpias.",
+        {"mesas": cleaned_labels},
+    )
+    db.session.commit()
+
+    flash(
+        f"Se marcaron {len(mesas)} mesa{'' if len(mesas) == 1 else 's'} como limpia{'' if len(mesas) == 1 else 's'}.",
+        "success",
+    )
+    return redirect(request.referrer or url_for("web.mesas"))
+
+
 @web_bp.post("/mesas/<int:mesa_id>/eliminar")
 @feature_required("mesas.delete")
 def eliminar_mesa(mesa_id):
@@ -1698,11 +1928,13 @@ def ordenes():
     filter_date = parse_date_filter(request.args.get("fecha"))
     orders = get_orders_for_listing(status=status, date_value=filter_date)
     available_tables = get_mesas_disponibles()
+    _, active_orders = grouped_tables()
     return render_template(
         "orders.html",
         page_title="Ordenes",
         orders=orders,
         available_tables=available_tables,
+        active_orders=active_orders,
         selected_status=status or "",
         selected_date=filter_date.isoformat(),
         cash_session=get_active_cash_session(),
@@ -2997,6 +3229,7 @@ def api_orden_estado(order_id):
         return jsonify(
             {
                 "status": "ok",
+                "order_state": order.estado,
                 "delivered_count": len(order.items_entregados),
                 "items_html": render_template("partials/order_items_list.html", **context),
                 "payment_html": render_template("partials/order_payment_panel.html", **context),

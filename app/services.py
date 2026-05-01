@@ -14,6 +14,7 @@ from .extensions import db
 from .models import (
     AuditLog,
     Categoria,
+    ListaEspera,
     Mesa,
     MovimientoCaja,
     MovimientoInventario,
@@ -916,6 +917,14 @@ def bootstrap_system_preferences():
         db.session.commit()
 
 
+def bootstrap_waitlist_schema():
+    inspector = inspect(db.engine)
+    if not inspector.has_table("usuarios") or not inspector.has_table("mesas"):
+        return
+    if not inspector.has_table("lista_espera"):
+        ListaEspera.__table__.create(db.engine)
+
+
 def audit_event(action, entity, entity_id=None, summary=None, details=None, commit=False):
     try:
         user_id = current_user.id if getattr(current_user, "is_authenticated", False) else None
@@ -1035,6 +1044,16 @@ def get_mesas_disponibles():
         .order_by(Mesa.numero.asc())
         .all()
     )
+
+
+def get_waitlist_entries(status="esperando"):
+    query = ListaEspera.query.options(
+        joinedload(ListaEspera.mesa).joinedload(Mesa.zona),
+        joinedload(ListaEspera.usuario),
+    )
+    if status:
+        query = query.filter_by(estado=status)
+    return query.order_by(ListaEspera.created_at.asc(), ListaEspera.id.asc()).all()
 
 
 def get_categorias():
