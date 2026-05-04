@@ -1807,22 +1807,148 @@ def build_split_matrix(order, people_count):
         for division_item in division.items:
             existing[(division_item.orden_item_id, person)] = division_item.cantidad
 
-    rows = []
-    for item in order.items_activos:
-        assignments = {}
-        assigned_total = 0
-        for person in range(1, people_count + 1):
-            qty = existing.get((item.id, person), 0)
-            assignments[person] = qty
-            assigned_total += qty
-        rows.append(
+    grouped_rows = {}
+    for item in sorted(order.items_activos, key=lambda item: item.id or 0):
+        key = split_group_key(item)
+        group = grouped_rows.setdefault(
+            key,
             {
                 "item": item,
-                "assignments": assignments,
-                "assigned_total": assigned_total,
-            }
+                "items": [],
+                "key": "",
+                "quantity": 0,
+                "subtotal": ZERO,
+                "assignments": {person: 0 for person in range(1, people_count + 1)},
+                "assigned_total": 0,
+            },
         )
-    return rows
+        group["items"].append(item)
+        group["quantity"] += item.cantidad
+        group["subtotal"] = money(as_decimal(group["subtotal"]) + item.subtotal)
+
+        for person in range(1, people_count + 1):
+            qty = existing.get((item.id, person), 0)
+            group["assignments"][person] += qty
+            group["assigned_total"] += qty
+
+    rows = []
+    for group in grouped_rows.values():
+        group["item_ids"] = [item.id for item in group["items"]]
+        group["key"] = split_group_form_key(group["items"])
+        rows.append(group)
+    return sorted(rows, key=split_group_sort_key)
+
+
+def split_group_key(item):
+    product_name = item.producto.nombre if item.producto else "Producto"
+    return (
+        product_name.strip().casefold(),
+        money(item.precio_unitario),
+        bool(item.requiere_cocina),
+    )
+
+
+def item_category_name(item):
+    if item.producto and item.producto.categoria:
+        return item.producto.categoria.nombre
+    return "Sin categoria"
+
+
+def split_group_sort_key(group):
+    item = group["item"]
+    product_name = item.producto.nombre if item.producto else "Producto"
+    first_item_id = min((group_item.id or 0 for group_item in group["items"]), default=0)
+    return (
+        item_category_name(item).strip().casefold(),
+        product_name.strip().casefold(),
+        money(item.precio_unitario),
+        first_item_id,
+    )
+
+
+def split_group_form_key(items):
+    return "_".join(str(item.id) for item in sorted(items, key=lambda item: item.id or 0))
+
+
+def distribute_group_assignments(items, group_assignments, people_count):
+    assignments = {}
+    remaining_by_person = {
+        person: max(parse_int(group_assignments.get(person, 0), 0), 0)
+        for person in range(1, people_count + 1)
+    }
+
+    for item in sorted(items, key=lambda item: item.id or 0):
+        remaining_item_qty = item.cantidad
+        for person in range(1, people_count + 1):
+            qty = min(remaining_item_qty, remaining_by_person[person])
+            assignments[(item.id, person)] = qty
+            remaining_item_qty -= qty
+            remaining_by_person[person] -= qty
+            if remaining_item_qty <= 0:
+                break
+
+        for person in range(1, people_count + 1):
+            assignments.setdefault((item.id, person), 0)
+
+    return assignments
+
+
+def build_split_assignment_groups(order):
+    grouped_rows = {}
+    for item in sorted(order.items_activos, key=lambda item: item.id or 0):
+        key = split_group_key(item)
+        group = grouped_rows.setdefault(key, {"items": [], "quantity": 0})
+        group["items"].append(item)
+        group["quantity"] += item.cantidad
+    return list(grouped_rows.values())
+
+
+def item_product_name(item):
+    return item.producto.nombre if item.producto else "Producto"
+
+
+def validate_group_split_assignment(order, people_count, form_data):
+    errors = []
+    labels = {}
+    assignments = {}
+
+    if people_count < 2 or people_count > 10:
+        return None, None, ["La cuenta solo puede dividirse entre 2 y 10 personas."]
+
+    for person in range(1, people_count + 1):
+        label = (form_data.get(f"label_{person}") or "").strip()
+        labels[person] = label
+
+    for group in build_split_assignment_groups(order):
+        items = group["items"]
+        form_key = split_group_form_key(items)
+        item_name = item_product_name(items[0])
+        group_total = group["quantity"]
+        group_assignments = {}
+        total_assigned = 0
+
+        for person in range(1, people_count + 1):
+            raw_value = form_data.get(f"group_{form_key}_person_{person}", "0")
+            qty = parse_int(raw_value, 0)
+            if qty < 0:
+                errors.append(f"No puedes usar cantidades negativas en {item_name}.")
+            if qty > group_total:
+                errors.append(
+                    f"No puedes asignar mas de {group_total} unidades de {item_name} a una persona."
+                )
+            group_assignments[person] = qty
+            total_assigned += qty
+
+        if total_assigned != group_total:
+            errors.append(
+                f"Debes repartir exactamente {group_total} unidades de {item_name}."
+            )
+
+        assignments.update(
+            distribute_group_assignments(items, group_assignments, people_count)
+        )
+
+    return labels, assignments, errors
 
 
 def save_split_configuration(order, people_count, labels, assignment_map):
@@ -1864,6 +1990,9 @@ def save_split_configuration(order, people_count, labels, assignment_map):
 
 
 def validate_split_assignment(order, people_count, form_data):
+    if any(key.startswith("group_") for key in form_data):
+        return validate_group_split_assignment(order, people_count, form_data)
+
     errors = []
     labels = {}
     assignments = {}

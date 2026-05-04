@@ -569,6 +569,33 @@ class OrdenDivision(db.Model):
             for division_item in self.items
         )
 
+    @property
+    def items_resumen(self):
+        grouped = {}
+        for division_item in self.items:
+            order_item = division_item.orden_item
+            product = order_item.producto if order_item else None
+            product_name = product.nombre if product else "-"
+            key = (
+                product_name.strip().casefold(),
+                as_decimal(order_item.precio_unitario) if order_item else Decimal("0.00"),
+                bool(order_item and order_item.requiere_cocina),
+            )
+            row = grouped.setdefault(
+                key,
+                {
+                    "cantidad": 0,
+                    "descripcion": product_name,
+                    "categoria": product.categoria.nombre if product and product.categoria else "Sin categoria",
+                    "notas": order_item.notas if order_item else "",
+                    "subtotal": Decimal("0.00"),
+                    "requiere_cocina": bool(order_item and order_item.requiere_cocina),
+                },
+            )
+            row["cantidad"] += division_item.cantidad
+            row["subtotal"] += as_decimal(division_item.subtotal)
+        return list(grouped.values())
+
 
 class OrdenDivisionItem(db.Model):
     __tablename__ = "orden_division_items"
