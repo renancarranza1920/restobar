@@ -156,8 +156,16 @@
         return navigator.language || "es-SV";
     }
 
-    function localTimeZone() {
-        return Intl.DateTimeFormat().resolvedOptions().timeZone;
+    function configuredTimeZone() {
+        return document.body?.dataset?.appTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    }
+
+    function configuredDateFormat() {
+        return document.body?.dataset?.dateFormat || "dd/mm/yyyy";
+    }
+
+    function configuredTimeFormat() {
+        return document.body?.dataset?.timeFormat || "12h";
     }
 
     function parseUtcDate(rawValue) {
@@ -171,38 +179,58 @@
         return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
     }
 
-    function formatLocalDate(rawValue, mode) {
-        const dateValue = parseUtcDate(rawValue);
-        if (!dateValue) {
-            return "";
-        }
-
-        if (mode === "date") {
-            return dateValue.toLocaleDateString(localDateLocale(), {
-                timeZone: localTimeZone(),
-                year: "numeric",
-                month: "2-digit",
-                day: "2-digit",
-            });
-        }
-
-        if (mode === "time") {
-            return dateValue.toLocaleTimeString(localDateLocale(), {
-                timeZone: localTimeZone(),
-                hour: "numeric",
-                minute: "2-digit",
-                second: "2-digit",
-            });
-        }
-
-        return dateValue.toLocaleString(localDateLocale(), {
-            timeZone: localTimeZone(),
+    function datePartsForTimeZone(dateValue) {
+        const formatter = new Intl.DateTimeFormat("en-US", {
+            timeZone: configuredTimeZone(),
             year: "numeric",
             month: "2-digit",
             day: "2-digit",
+        });
+        const parts = {};
+        formatter.formatToParts(dateValue).forEach((part) => {
+            if (part.type !== "literal") {
+                parts[part.type] = part.value;
+            }
+        });
+        return parts;
+    }
+
+    function formatDatePart(dateValue) {
+        const parts = datePartsForTimeZone(dateValue);
+        const format = configuredDateFormat();
+        if (format === "yyyy-mm-dd") {
+            return `${parts.year}-${parts.month}-${parts.day}`;
+        }
+        if (format === "mm/dd/yyyy") {
+            return `${parts.month}/${parts.day}/${parts.year}`;
+        }
+        return `${parts.day}/${parts.month}/${parts.year}`;
+    }
+
+    function formatTimePart(dateValue) {
+        return dateValue.toLocaleTimeString(localDateLocale(), {
+            timeZone: configuredTimeZone(),
             hour: "numeric",
             minute: "2-digit",
+            hour12: configuredTimeFormat() !== "24h",
         });
+    }
+
+    function formatDateObject(dateValue, mode) {
+        if (!dateValue) {
+            return "";
+        }
+        if (mode === "date") {
+            return formatDatePart(dateValue);
+        }
+        if (mode === "time") {
+            return formatTimePart(dateValue);
+        }
+        return `${formatDatePart(dateValue)} ${formatTimePart(dateValue)}`;
+    }
+
+    function formatLocalDate(rawValue, mode) {
+        return formatDateObject(parseUtcDate(rawValue), mode);
     }
 
     function renderLocalDateNodes() {
@@ -217,12 +245,14 @@
         });
 
         document.querySelectorAll("[data-local-current-date]").forEach((node) => {
-            node.textContent = new Date().toLocaleDateString(localDateLocale(), {
-                timeZone: localTimeZone(),
-                year: "numeric",
-                month: "2-digit",
-                day: "2-digit",
-            });
+            node.textContent = formatDateObject(new Date(), "date");
+        });
+
+        document.querySelectorAll("[data-local-current-datetime]").forEach((node) => {
+            node.textContent = formatDateObject(
+                new Date(),
+                node.getAttribute("data-local-format") || "datetime"
+            );
         });
     }
 

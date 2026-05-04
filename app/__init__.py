@@ -9,12 +9,15 @@ from .services import (
     bootstrap_admin_account,
     bootstrap_roles_permissions,
     bootstrap_security_schema,
+    bootstrap_system_preferences,
     bootstrap_takeout_table,
-    default_theme,
+    bootstrap_waitlist_schema,
+    business_initial,
+    format_local_datetime,
     get_active_cash_session,
+    get_system_preferences,
     get_user,
     local_now,
-    localize_datetime,
     money,
     navigation_for_user,
     role_label,
@@ -28,6 +31,7 @@ def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
     app.config["PRODUCT_UPLOAD_DIR"].mkdir(parents=True, exist_ok=True)
+    app.config["BRANDING_UPLOAD_DIR"].mkdir(parents=True, exist_ok=True)
 
     db.init_app(app)
     migrate.init_app(app, db)
@@ -41,6 +45,8 @@ def create_app():
 
     with app.app_context():
         bootstrap_security_schema()
+        bootstrap_system_preferences()
+        bootstrap_waitlist_schema()
         bootstrap_roles_permissions()
         bootstrap_admin_account()
         bootstrap_takeout_table()
@@ -57,8 +63,7 @@ def create_app():
     def datetime_short(value):
         if not value:
             return "--"
-        localized_value = localize_datetime(value)
-        return localized_value.strftime("%d/%m/%Y %I:%M %p")
+        return format_local_datetime(value, "datetime")
 
     @app.template_filter("datetime_iso")
     def datetime_iso(value):
@@ -82,12 +87,17 @@ def create_app():
 
     @app.context_processor
     def inject_global_context():
-        theme = session.get("theme", default_theme())
+        preferences = get_system_preferences()
+        theme = session.get("theme", preferences["default_theme"])
         if theme not in theme_choices():
-            theme = default_theme()
+            theme = preferences["default_theme"]
 
         return {
-            "app_name": "Restobar",
+            "app_name": preferences["business_name"],
+            "business_logo_url": preferences["business_logo_url"],
+            "business_initial": business_initial(preferences),
+            "business_tagline": preferences["business_tagline"],
+            "system_preferences": preferences,
             "current_theme": theme,
             "nav_items": (
                 navigation_for_user(current_user)
@@ -101,7 +111,7 @@ def create_app():
             ),
             "role_label": role_label,
             "user_can": user_can,
-            "now_label": local_now().strftime("%d/%m/%Y"),
+            "now_label": format_local_datetime(local_now(), preferences["sidebar_clock"], preferences),
         }
 
     @app.before_request

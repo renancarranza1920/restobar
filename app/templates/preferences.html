@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+
+{% block content %}
+{% set can_edit_preferences = user_can(current_user, 'preferencias.edit') %}
+<div class="filament-dashboard p-4 md:p-6">
+    <header class="page-header">
+        <div>
+            <p class="text-xs font-bold text-primary uppercase tracking-wide mb-1">Configuracion</p>
+            <h1 class="text-2xl font-bold text-gray-800">
+                <i class="fa-solid fa-sliders mr-2 text-muted"></i> Preferencias
+            </h1>
+            <p class="text-sm text-muted mt-1">Personaliza identidad, logo, tema y formato de fecha/hora del sistema.</p>
+        </div>
+
+        <div class="page-actions">
+            <a class="button button-ghost hover-lift shadow-sm border-gray-200" href="{{ url_for('web.dashboard') if user_can(current_user, 'dashboard.view') else url_for(nav_items[0].endpoint) if nav_items else '#' }}">
+                <i class="fa-solid fa-arrow-left mr-2"></i> Volver
+            </a>
+        </div>
+    </header>
+
+    <form method="post" action="{{ url_for('web.actualizar_preferencias') }}" enctype="multipart/form-data">
+        <section class="filament-content-grid">
+            <div class="filament-col">
+                <article class="panel mb-6">
+                    <div class="panel-header border-b bg-gray-50">
+                        <div>
+                            <h2 class="panel-title font-bold">
+                                <i class="fa-solid fa-store mr-2 text-muted"></i> Identidad del negocio
+                            </h2>
+                            <p class="text-sm text-muted mt-1">Estos datos se muestran en el menu, login, tickets y reportes.</p>
+                        </div>
+                    </div>
+
+                    <div class="panel-body form-stack">
+                        <div>
+                            <label for="business_name" class="block text-sm font-bold text-gray-800 mb-2">
+                                Nombre del negocio <span class="text-danger">*</span>
+                            </label>
+                            <input
+                                id="business_name"
+                                name="business_name"
+                                value="{{ preferences.business_name }}"
+                                maxlength="80"
+                                required
+                                {% if not can_edit_preferences %}disabled{% endif %}
+                            >
+                        </div>
+
+                        <div>
+                            <label for="business_tagline" class="block text-sm font-bold text-gray-800 mb-2">Frase corta</label>
+                            <input
+                                id="business_tagline"
+                                name="business_tagline"
+                                value="{{ preferences.business_tagline }}"
+                                maxlength="140"
+                                {% if not can_edit_preferences %}disabled{% endif %}
+                            >
+                        </div>
+
+                        <div>
+                            <label for="business_logo_url" class="block text-sm font-bold text-gray-800 mb-2">URL externa del logo</label>
+                            <input
+                                id="business_logo_url"
+                                name="business_logo_url"
+                                value="{{ preferences.business_logo_url }}"
+                                placeholder="https://..."
+                                {% if not can_edit_preferences %}disabled{% endif %}
+                            >
+                        </div>
+
+                        <div>
+                            <label for="logo_file" class="block text-sm font-bold text-gray-800 mb-2">Subir logo</label>
+                            <input
+                                id="logo_file"
+                                type="file"
+                                name="logo_file"
+                                accept="image/*"
+                                {% if not can_edit_preferences %}disabled{% endif %}
+                            >
+                            <p class="text-xs text-muted mt-1">Puedes usar PNG, JPG, WEBP o GIF. El archivo subido reemplaza la URL al guardar.</p>
+                        </div>
+
+                        {% if preferences.business_logo_url %}
+                            <label class="flex items-start gap-3 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    name="remove_logo"
+                                    style="width:auto; margin-top: 0.2rem;"
+                                    {% if not can_edit_preferences %}disabled{% endif %}
+                                >
+                                <div>
+                                    <span class="block text-sm font-bold text-danger">Quitar logo actual</span>
+                                    <span class="block text-xs text-muted mt-1">Se dejara solo la inicial del negocio.</span>
+                                </div>
+                            </label>
+                        {% endif %}
+                    </div>
+                </article>
+
+                <article class="panel">
+                    <div class="panel-header border-b bg-gray-50">
+                        <div>
+                            <h2 class="panel-title font-bold">
+                                <i class="fa-solid fa-receipt mr-2 text-muted"></i> Ticket
+                            </h2>
+                            <p class="text-sm text-muted mt-1">Texto final impreso en los comprobantes.</p>
+                        </div>
+                    </div>
+
+                    <div class="panel-body">
+                        <label for="ticket_footer" class="block text-sm font-bold text-gray-800 mb-2">Mensaje de cierre</label>
+                        <input
+                            id="ticket_footer"
+                            name="ticket_footer"
+                            value="{{ preferences.ticket_footer }}"
+                            maxlength="160"
+                            {% if not can_edit_preferences %}disabled{% endif %}
+                        >
+                    </div>
+                </article>
+            </div>
+
+            <div class="filament-col">
+                <article class="panel mb-6">
+                    <div class="panel-header border-b bg-gray-50">
+                        <div>
+                            <h2 class="panel-title font-bold">
+                                <i class="fa-solid fa-calendar-days mr-2 text-muted"></i> Fecha y hora
+                            </h2>
+                            <p class="text-sm text-muted mt-1">Controla como se presentan las fechas en listados, caja, tickets y reportes.</p>
+                        </div>
+                    </div>
+
+                    <div class="panel-body form-stack">
+                        <div>
+                            <label for="timezone" class="block text-sm font-bold text-gray-800 mb-2">Zona horaria</label>
+                            <select id="timezone" name="timezone" {% if not can_edit_preferences %}disabled{% endif %}>
+                                {% for timezone in choices.timezones %}
+                                    <option value="{{ timezone.value }}" {% if timezone.value == preferences.timezone %}selected{% endif %}>
+                                        {{ timezone.label }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="form-grid two-up">
+                            <div>
+                                <label for="date_format" class="block text-sm font-bold text-gray-800 mb-2">Formato de fecha</label>
+                                <select id="date_format" name="date_format" {% if not can_edit_preferences %}disabled{% endif %}>
+                                    {% for format in choices.date_formats %}
+                                        <option value="{{ format.value }}" {% if format.value == preferences.date_format %}selected{% endif %}>
+                                            {{ format.label }}
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label for="time_format" class="block text-sm font-bold text-gray-800 mb-2">Formato de hora</label>
+                                <select id="time_format" name="time_format" {% if not can_edit_preferences %}disabled{% endif %}>
+                                    {% for format in choices.time_formats %}
+                                        <option value="{{ format.value }}" {% if format.value == preferences.time_format %}selected{% endif %}>
+                                            {{ format.label }}
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label for="sidebar_clock" class="block text-sm font-bold text-gray-800 mb-2">Reloj del menu</label>
+                            <select id="sidebar_clock" name="sidebar_clock" {% if not can_edit_preferences %}disabled{% endif %}>
+                                {% for clock in choices.sidebar_clocks %}
+                                    <option value="{{ clock.value }}" {% if clock.value == preferences.sidebar_clock %}selected{% endif %}>
+                                        {{ clock.label }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                </article>
+
+                <article class="panel mb-6">
+                    <div class="panel-header border-b bg-gray-50">
+                        <div>
+                            <h2 class="panel-title font-bold">
+                                <i class="fa-solid fa-palette mr-2 text-muted"></i> Apariencia
+                            </h2>
+                            <p class="text-sm text-muted mt-1">Define el tema inicial para nuevas sesiones.</p>
+                        </div>
+                    </div>
+
+                    <div class="panel-body form-stack">
+                        <div>
+                            <label for="default_theme" class="block text-sm font-bold text-gray-800 mb-2">Tema inicial</label>
+                            <select id="default_theme" name="default_theme" {% if not can_edit_preferences %}disabled{% endif %}>
+                                {% for theme in choices.themes %}
+                                    <option value="{{ theme.value }}" {% if theme.value == preferences.default_theme %}selected{% endif %}>
+                                        {{ theme.label }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="inline-alert inline-alert-info">
+                            <i class="fa-solid fa-circle-info mr-2"></i>
+                            <span>El boton de modo claro/oscuro sigue funcionando por usuario; este valor solo define el punto de inicio.</span>
+                        </div>
+                    </div>
+                </article>
+
+                <article class="panel">
+                    <div class="panel-header border-b bg-gray-50">
+                        <h2 class="panel-title font-bold">
+                            <i class="fa-solid fa-eye mr-2 text-muted"></i> Vista previa
+                        </h2>
+                    </div>
+
+                    <div class="panel-body">
+                        <div class="preference-preview">
+                            <div class="preference-preview-mark {{ 'has-image' if preferences.business_logo_url else '' }}">
+                                {% if preferences.business_logo_url %}
+                                    <img src="{{ preferences.business_logo_url }}" alt="{{ preferences.business_name }} logo">
+                                {% else %}
+                                    {{ preferences.business_name[:1]|upper }}
+                                {% endif %}
+                            </div>
+                            <div class="preference-preview-copy">
+                                <strong>{{ preferences.business_name }}</strong>
+                                <span>{{ preferences.business_tagline }}</span>
+                                <small data-local-current-datetime data-local-format="{{ preferences.sidebar_clock }}">{{ now_label }}</small>
+                            </div>
+                        </div>
+                    </div>
+                </article>
+            </div>
+        </section>
+
+        <div class="form-footer">
+            <span></span>
+            <div class="form-footer-actions">
+                <a href="{{ url_for('web.dashboard') if user_can(current_user, 'dashboard.view') else url_for(nav_items[0].endpoint) if nav_items else '#' }}" class="button button-ghost bg-white border-gray-200 shadow-sm">
+                    Cancelar
+                </a>
+                {% if can_edit_preferences %}
+                    <button class="button button-primary shadow-sm hover-lift" type="submit">
+                        <i class="fa-solid fa-save mr-2"></i> Guardar preferencias
+                    </button>
+                {% endif %}
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}

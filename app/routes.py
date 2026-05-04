@@ -38,6 +38,7 @@ from .extensions import db
 from .models import (
     AuditLog,
     Categoria,
+    ListaEspera,
     Mesa,
     MovimientoCaja,
     MovimientoInventario,
@@ -66,6 +67,9 @@ from .services import (
     division_can_receive_payment,
     feature_required,
     feature_definitions,
+    format_local_datetime,
+    get_system_preferences,
+    get_waitlist_entries,
     permission_definitions,
     get_active_cash_session,
     get_active_order_for_mesa,
@@ -95,7 +99,6 @@ from .services import (
     item_can_be_prepared,
     local_now,
     local_today,
-    localize_datetime,
     normalize_item_delivery_states,
     money as normalize_money,
     order_can_receive_payment,
@@ -105,6 +108,7 @@ from .services import (
     recent_cash_movements,
     recent_inventory_movements,
     reset_divisiones_if_possible,
+    save_system_preferences,
     save_split_configuration,
     serialize_kitchen_item,
     session_card_total,
@@ -115,8 +119,10 @@ from .services import (
     order_stock_errors,
     sync_order,
     LOW_STOCK_THRESHOLD,
+    system_preference_choices,
     theme_choices,
     user_can,
+    valid_timezone_name,
     valid_role_code,
     validate_split_assignment,
 )
@@ -311,6 +317,35 @@ def delete_uploaded_product_image(image_url):
         file_path.unlink(missing_ok=True)
 
 
+def save_brand_logo(file_storage):
+    if file_storage is None or not file_storage.filename:
+        return None, None
+
+    filename = secure_filename(file_storage.filename)
+    extension = Path(filename).suffix.lower()
+
+    if extension not in IMAGE_EXTENSIONS:
+        return None, "El logo debe ser JPG, PNG, WEBP o GIF."
+
+    upload_dir = current_app.config["BRANDING_UPLOAD_DIR"]
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    generated_name = f"{datetime.utcnow():%Y%m%d%H%M%S}_{uuid4().hex[:10]}{extension}"
+    destination = upload_dir / generated_name
+    file_storage.save(destination)
+    return f"/static/uploads/branding/{generated_name}", None
+
+
+def delete_uploaded_brand_logo(image_url):
+    if not image_url or not image_url.startswith("/static/uploads/branding/"):
+        return
+
+    relative_name = image_url.replace("/static/uploads/branding/", "", 1)
+    file_path = current_app.config["BRANDING_UPLOAD_DIR"] / relative_name
+    if file_path.exists():
+        file_path.unlink(missing_ok=True)
+
+
 def extract_product_payload(existing=None):
     image_url = (request.form.get("image_url") or "").strip()
     uploaded_image, upload_error = save_product_image(request.files.get("image_file"))
@@ -396,6 +431,8 @@ def build_csv_response(filename, headers, rows):
 
 
 def build_pdf_response(filename, start_date, end_date, report):
+    preferences = get_system_preferences()
+    business_name = preferences["business_name"]
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -557,10 +594,10 @@ def build_pdf_response(filename, start_date, end_date, report):
         table.setStyle(TableStyle(commands))
         return table
 
-    generated_at = local_now().strftime("%Y-%m-%d %H:%M")
+    generated_at = format_local_datetime(local_now(), "datetime", preferences)
 
     story = [
-        Paragraph("Restobar", title_style),
+        Paragraph(business_name, title_style),
         Paragraph("Reporte ejecutivo", title_style),
         Paragraph(
             f"Período analizado: {start_date.isoformat()} al {end_date.isoformat()}",
@@ -622,7 +659,11 @@ def build_pdf_response(filename, start_date, end_date, report):
 
         canvas.setFont("Helvetica-Bold", 9)
         canvas.setFillColor(colors.HexColor("#274b6b"))
-        canvas.drawString(doc.leftMargin, page_height - 20, "RESTOBAR · REPORTE EJECUTIVO")
+        canvas.drawString(
+            doc.leftMargin,
+            page_height - 20,
+            f"{business_name.upper()} - REPORTE EJECUTIVO",
+        )
 
         canvas.setFont("Helvetica", 8)
         canvas.setFillColor(colors.HexColor("#64748b"))
@@ -636,7 +677,7 @@ def build_pdf_response(filename, start_date, end_date, report):
         canvas.setFont("Helvetica", 7.8)
         canvas.setFillColor(colors.HexColor("#64748b"))
         canvas.drawString(doc.leftMargin, 11, f"Período: {start_date.isoformat()} a {end_date.isoformat()}")
-        canvas.drawRightString(page_width - doc.rightMargin, 11, "Sistema Restobar")
+        canvas.drawRightString(page_width - doc.rightMargin, 11, f"Sistema {business_name}")
 
         canvas.restoreState()
 
@@ -667,7 +708,7 @@ def normalize_role_code(value):
 def local_datetime_label(value):
     if not value:
         return ""
-    return localize_datetime(value).strftime("%Y-%m-%d %H:%M")
+    return format_local_datetime(value, "datetime")
 
 
 @web_bp.get("/")
@@ -814,11 +855,110 @@ def cambiar_tema():
     return redirect(request.referrer or url_for("web.login"))
 
 
+@web_bp.get("/preferencias")
+@fresh_login_required
+@feature_required("preferencias.view")
+def preferencias():
+    return render_template(
+        "preferences.html",
+        page_title="Preferencias",
+        preferences=get_system_preferences(),
+        choices=system_preference_choices(),
+    )
+
+
+@web_bp.post("/preferencias")
+@fresh_login_required
+@feature_required("preferencias.edit")
+def actualizar_preferencias():
+    current_preferences = get_system_preferences()
+    uploaded_logo, upload_error = save_brand_logo(request.files.get("logo_file"))
+    remove_logo = bool_from_form(request.form.get("remove_logo"))
+    logo_url = (request.form.get("business_logo_url") or "").strip()
+
+    payload = {
+        "business_name": (request.form.get("business_name") or "").strip(),
+        "business_tagline": (request.form.get("business_tagline") or "").strip(),
+        "business_logo_url": current_preferences.get("business_logo_url", ""),
+        "timezone": (request.form.get("timezone") or "").strip(),
+        "date_format": (request.form.get("date_format") or "").strip(),
+        "time_format": (request.form.get("time_format") or "").strip(),
+        "sidebar_clock": (request.form.get("sidebar_clock") or "").strip(),
+        "default_theme": (request.form.get("default_theme") or "").strip(),
+        "ticket_footer": (request.form.get("ticket_footer") or "").strip(),
+    }
+
+    if logo_url:
+        payload["business_logo_url"] = logo_url
+    if uploaded_logo:
+        payload["business_logo_url"] = uploaded_logo
+    if remove_logo:
+        payload["business_logo_url"] = ""
+
+    choices = system_preference_choices()
+    valid_date_formats = {choice["value"] for choice in choices["date_formats"]}
+    valid_time_formats = {choice["value"] for choice in choices["time_formats"]}
+    valid_sidebar_clocks = {choice["value"] for choice in choices["sidebar_clocks"]}
+    valid_themes = {choice["value"] for choice in choices["themes"]}
+
+    errors = []
+    if upload_error:
+        errors.append(upload_error)
+    if not payload["business_name"]:
+        errors.append("El nombre del negocio es obligatorio.")
+    if logo_url and not valid_image_reference(logo_url):
+        errors.append("La URL del logo debe iniciar con http://, https:// o /static/.")
+    if payload["timezone"] and not valid_timezone_name(payload["timezone"]):
+        errors.append("La zona horaria seleccionada no es valida.")
+    if payload["date_format"] not in valid_date_formats:
+        errors.append("Selecciona un formato de fecha valido.")
+    if payload["time_format"] not in valid_time_formats:
+        errors.append("Selecciona un formato de hora valido.")
+    if payload["sidebar_clock"] not in valid_sidebar_clocks:
+        errors.append("Selecciona que debe mostrar el reloj del menu.")
+    if payload["default_theme"] not in valid_themes:
+        errors.append("Selecciona un tema inicial valido.")
+
+    if errors:
+        if uploaded_logo:
+            delete_uploaded_brand_logo(uploaded_logo)
+        flash_form_errors(errors)
+        return redirect(url_for("web.preferencias"))
+
+    if remove_logo and uploaded_logo:
+        delete_uploaded_brand_logo(uploaded_logo)
+
+    old_logo = current_preferences.get("business_logo_url")
+    saved_preferences = save_system_preferences(payload)
+    if old_logo and old_logo != saved_preferences["business_logo_url"] and old_logo.startswith(
+        "/static/uploads/branding/"
+    ):
+        delete_uploaded_brand_logo(old_logo)
+
+    session["theme"] = saved_preferences["default_theme"]
+    audit_event(
+        "actualizar",
+        "preferencias",
+        "sistema",
+        "Se actualizaron las preferencias generales del sistema.",
+        {"preferencias": saved_preferences},
+    )
+    db.session.commit()
+
+    flash("Preferencias guardadas correctamente.", "success")
+    return redirect(url_for("web.preferencias"))
+
+
 @web_bp.get("/dashboard")
 @feature_required("dashboard.view")
 def dashboard():
     snapshot = get_dashboard_snapshot()
-    return render_template("dashboard.html", page_title="Inicio", **snapshot)
+    return render_template(
+        "dashboard.html",
+        page_title="Inicio",
+        dashboard_date=local_today().isoformat(),
+        **snapshot,
+    )
 
 
 @web_bp.get("/zonas")
@@ -1399,13 +1539,193 @@ def auditoria():
 @feature_required("mesas.view")
 def mesas():
     zonas, active_orders = grouped_tables()
+    waitlist_entries = get_waitlist_entries()
+    zone_cards = []
+    table_summary = {
+        "total": 0,
+        "available": 0,
+        "occupied": 0,
+        "active_accounts": 0,
+        "dirty": 0,
+        "zones_with_available": 0,
+        "waiting": len(waitlist_entries),
+    }
+
+    for zona in zonas:
+        tables = list(zona.mesas)
+        ordered_tables = sorted(
+            tables,
+            key=lambda mesa: (
+                2
+                if active_orders.get(mesa.id)
+                else 1
+                if mesa.limpieza_estado != "limpia"
+                else 0,
+                mesa.numero,
+                mesa.etiqueta,
+            ),
+        )
+        available_count = sum(
+            1
+            for mesa in tables
+            if not active_orders.get(mesa.id) and mesa.limpieza_estado == "limpia"
+        )
+        occupied_count = sum(1 for mesa in tables if active_orders.get(mesa.id))
+        dirty_count = sum(
+            1
+            for mesa in tables
+            if not active_orders.get(mesa.id) and mesa.limpieza_estado == "sucia"
+        )
+        active_account_count = sum(len(active_orders.get(mesa.id, [])) for mesa in tables)
+
+        zone_cards.append(
+            {
+                "zona": zona,
+                "tables": ordered_tables,
+                "total": len(tables),
+                "available": available_count,
+                "occupied": occupied_count,
+                "active_accounts": active_account_count,
+                "dirty": dirty_count,
+            }
+        )
+
+        table_summary["total"] += len(tables)
+        table_summary["available"] += available_count
+        table_summary["occupied"] += occupied_count
+        table_summary["active_accounts"] += active_account_count
+        table_summary["dirty"] += dirty_count
+        if available_count:
+            table_summary["zones_with_available"] += 1
+
     return render_template(
         "tables.html",
         page_title="Mesas",
         zonas=zonas,
+        zone_cards=zone_cards,
+        table_summary=table_summary,
         active_orders=active_orders,
+        waitlist_entries=waitlist_entries,
         cash_session=get_active_cash_session(),
     )
+
+
+@web_bp.post("/lista-espera")
+@feature_required("ordenes.create")
+def crear_lista_espera():
+    waitlist_url = url_for("web.mesas", modal="waitlist")
+    personas = parse_int(request.form.get("personas"))
+    nombre_cliente = (request.form.get("nombre_cliente") or "").strip()
+    telefono = (request.form.get("telefono") or "").strip()
+    notas = (request.form.get("notas") or "").strip()
+
+    if personas <= 0 or personas > 60:
+        flash("Indica para cuantas personas es el grupo en espera.", "error")
+        return redirect(waitlist_url)
+
+    if not nombre_cliente:
+        nombre_cliente = f"Grupo de {personas}"
+
+    entry = ListaEspera(
+        nombre_cliente=nombre_cliente[:100],
+        personas=personas,
+        telefono=telefono[:40] or None,
+        notas=notas[:200] or None,
+        usuario_id=current_user.id,
+    )
+    db.session.add(entry)
+    audit_event(
+        "crear",
+        "lista_espera",
+        None,
+        f"Se agrego {entry.nombre_cliente} a lista de espera.",
+        {"personas": personas},
+    )
+    db.session.commit()
+
+    flash(f"{entry.nombre_cliente} quedo en lista de espera para {entry.etiqueta_personas}.", "success")
+    return redirect(waitlist_url)
+
+
+@web_bp.post("/lista-espera/<int:entry_id>/cancelar")
+@feature_required("ordenes.create")
+def cancelar_lista_espera(entry_id):
+    waitlist_url = url_for("web.mesas", modal="waitlist")
+    entry = db.session.get(ListaEspera, entry_id)
+    if entry is None:
+        flash("La entrada de lista de espera no existe.", "error")
+        return redirect(waitlist_url)
+    if entry.estado != "esperando":
+        flash("Ese grupo ya no esta esperando.", "warning")
+        return redirect(waitlist_url)
+
+    entry.estado = "cancelado"
+    entry.closed_at = datetime.utcnow()
+    audit_event(
+        "cancelar",
+        "lista_espera",
+        entry.id,
+        f"Se cancelo la espera de {entry.nombre_cliente}.",
+        {"personas": entry.personas},
+    )
+    db.session.commit()
+
+    flash(f"Se retiro a {entry.nombre_cliente} de la lista de espera.", "success")
+    return redirect(waitlist_url)
+
+
+@web_bp.post("/lista-espera/<int:entry_id>/sentar")
+@feature_required("ordenes.create")
+def sentar_lista_espera(entry_id):
+    waitlist_url = url_for("web.mesas", modal="waitlist")
+    entry = db.session.get(ListaEspera, entry_id)
+    if entry is None:
+        flash("La entrada de lista de espera no existe.", "error")
+        return redirect(waitlist_url)
+    if entry.estado != "esperando":
+        flash("Ese grupo ya no esta esperando.", "warning")
+        return redirect(waitlist_url)
+
+    cash_session = get_active_cash_session()
+    if cash_session is None:
+        flash("Primero abre caja para poder sentar grupos y crear ordenes.", "error")
+        return redirect(url_for("web.caja"))
+
+    mesa_id = parse_int(request.form.get("mesa_id"))
+    mesa = db.session.get(Mesa, mesa_id)
+    if mesa is None or mesa.id == current_app.config["TAKEOUT_TABLE_ID"]:
+        flash("Selecciona una mesa valida para sentar al grupo.", "error")
+        return redirect(waitlist_url)
+    if mesa.limpieza_estado == "sucia":
+        flash("No puedes sentar un grupo en una mesa marcada como sucia.", "warning")
+        return redirect(waitlist_url)
+    if get_active_order_for_mesa(mesa.id):
+        flash("Selecciona una mesa libre para sentar a un grupo de lista de espera.", "warning")
+        return redirect(waitlist_url)
+
+    order = Orden(
+        mesa_id=mesa.id,
+        sesion_caja_id=cash_session.id,
+        usuario_id=current_user.id,
+        nombre_cliente=entry.nombre_cliente,
+    )
+    mesa.estado = "ocupada"
+    entry.estado = "sentado"
+    entry.mesa_id = mesa.id
+    entry.closed_at = datetime.utcnow()
+
+    db.session.add(order)
+    audit_event(
+        "sentar",
+        "lista_espera",
+        entry.id,
+        f"Se sento {entry.nombre_cliente} en {mesa.etiqueta}.",
+        {"mesa_id": mesa.id, "personas": entry.personas},
+    )
+    db.session.commit()
+
+    flash(f"{entry.nombre_cliente} fue sentado en {mesa.etiqueta}: orden #{order.id}.", "success")
+    return redirect(url_for("web.detalle_orden", order_id=order.id))
 
 
 @web_bp.get("/mesas/nueva")
@@ -1536,6 +1856,49 @@ def actualizar_limpieza_mesa(mesa_id):
     return redirect(request.referrer or url_for("web.mesas"))
 
 
+@web_bp.post("/mesas/limpieza/masiva")
+@feature_required("mesas.edit")
+def limpiar_mesas_masivo():
+    mesa_ids = {
+        parse_int(value)
+        for value in request.form.getlist("mesa_ids")
+        if parse_int(value) > 0
+    }
+    if not mesa_ids:
+        flash("Selecciona al menos una mesa sucia para limpiar.", "warning")
+        return redirect(request.referrer or url_for("web.mesas"))
+
+    mesas = (
+        Mesa.query.filter(Mesa.id.in_(mesa_ids))
+        .filter(Mesa.limpieza_estado == "sucia")
+        .filter(Mesa.estado != "ocupada")
+        .all()
+    )
+    if not mesas:
+        flash("No hay mesas seleccionadas que puedan marcarse como limpias.", "warning")
+        return redirect(request.referrer or url_for("web.mesas"))
+
+    cleaned_labels = []
+    for mesa in mesas:
+        mesa.limpieza_estado = "limpia"
+        cleaned_labels.append(mesa.etiqueta)
+
+    audit_event(
+        "limpieza_masiva",
+        "mesa",
+        ",".join(str(mesa.id) for mesa in mesas),
+        f"Se marcaron {len(mesas)} mesas como limpias.",
+        {"mesas": cleaned_labels},
+    )
+    db.session.commit()
+
+    flash(
+        f"Se marcaron {len(mesas)} mesa{'' if len(mesas) == 1 else 's'} como limpia{'' if len(mesas) == 1 else 's'}.",
+        "success",
+    )
+    return redirect(request.referrer or url_for("web.mesas"))
+
+
 @web_bp.post("/mesas/<int:mesa_id>/eliminar")
 @feature_required("mesas.delete")
 def eliminar_mesa(mesa_id):
@@ -1565,11 +1928,13 @@ def ordenes():
     filter_date = parse_date_filter(request.args.get("fecha"))
     orders = get_orders_for_listing(status=status, date_value=filter_date)
     available_tables = get_mesas_disponibles()
+    _, active_orders = grouped_tables()
     return render_template(
         "orders.html",
         page_title="Ordenes",
         orders=orders,
         available_tables=available_tables,
+        active_orders=active_orders,
         selected_status=status or "",
         selected_date=filter_date.isoformat(),
         cash_session=get_active_cash_session(),
@@ -2864,6 +3229,7 @@ def api_orden_estado(order_id):
         return jsonify(
             {
                 "status": "ok",
+                "order_state": order.estado,
                 "delivered_count": len(order.items_entregados),
                 "items_html": render_template("partials/order_items_list.html", **context),
                 "payment_html": render_template("partials/order_payment_panel.html", **context),

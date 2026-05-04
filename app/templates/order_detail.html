@@ -63,8 +63,9 @@
         </article>
     </section>
 
+    {% if order.estado == 'abierta' %}
     {% set product_groups = products|groupby("categoria.nombre") %}
-    <article class="panel mb-6 quick-order-panel" data-quick-order>
+    <article class="panel mb-6 quick-order-panel" data-quick-order data-order-id="{{ order.id }}">
         <div class="panel-header border-b bg-white quick-order-head">
             <div>
                 <h2 class="panel-title font-bold text-primary">
@@ -72,12 +73,17 @@
                 </h2>
                 <p class="text-sm text-muted mt-1">Toca + en cada producto y envia todo junto a la orden.</p>
             </div>
-            <span class="badge bg-primary-light text-primary border border-primary">
-                {{ products|length }} productos
-            </span>
+            <div class="quick-order-head-actions">
+                <span class="badge bg-primary-light text-primary border border-primary">
+                    {{ products|length }} productos
+                </span>
+                <button class="button button-ghost button-small quick-order-toggle" type="button" data-quick-order-toggle aria-expanded="true">
+                    <i class="fa-solid fa-chevron-up"></i> Minimizar
+                </button>
+            </div>
         </div>
 
-        <form method="post" action="{{ url_for('web.agregar_item_orden', order_id=order.id) }}" data-quick-order-form>
+        <form class="quick-order-content" method="post" action="{{ url_for('web.agregar_item_orden', order_id=order.id) }}" data-quick-order-form>
             <div class="quick-order-toolbar">
                 <label class="quick-search-field" for="quick-product-search">
                     <i class="fa-solid fa-magnifying-glass"></i>
@@ -184,6 +190,7 @@
             </div>
         </form>
     </article>
+    {% endif %}
 
     <section class="filament-content-grid">
         <div class="filament-col">
@@ -242,7 +249,7 @@
 
 {% block scripts %}
     {{ super() }}
-    <script src="{{ url_for('static', filename='order-live.js') }}"></script>
+    <script src="{{ url_for('static', filename='order-live.js', v='quick-sale-collapse') }}"></script>
     <script>
         (function () {
             const root = document.querySelector("[data-quick-order]");
@@ -250,6 +257,8 @@
                 return;
             }
 
+            const toggleButton = root.querySelector("[data-quick-order-toggle]");
+            const collapseKey = `restobar:quick-order-collapsed:${root.dataset.orderId || "current"}`;
             const form = root.querySelector("[data-quick-order-form]");
             const search = root.querySelector("[data-quick-search]");
             const tabs = root.querySelectorAll("[data-category-filter]");
@@ -266,6 +275,31 @@
                 style: "currency",
                 currency: "USD",
             });
+
+            function setQuickCollapsed(collapsed) {
+                root.classList.toggle("is-collapsed", collapsed);
+                if (toggleButton) {
+                    toggleButton.setAttribute("aria-expanded", collapsed ? "false" : "true");
+                    toggleButton.innerHTML = collapsed
+                        ? '<i class="fa-solid fa-chevron-down"></i> Mostrar venta'
+                        : '<i class="fa-solid fa-chevron-up"></i> Minimizar';
+                }
+                try {
+                    window.localStorage.setItem(collapseKey, collapsed ? "true" : "false");
+                } catch (error) {
+                    // Ignore storage restrictions.
+                }
+            }
+
+            toggleButton?.addEventListener("click", () => {
+                setQuickCollapsed(!root.classList.contains("is-collapsed"));
+            });
+
+            try {
+                setQuickCollapsed(window.localStorage.getItem(collapseKey) === "true");
+            } catch (error) {
+                setQuickCollapsed(false);
+            }
 
             function cleanQuantity(value, maxValue = null) {
                 const nextValue = Number.parseInt(value, 10);
