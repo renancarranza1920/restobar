@@ -6,7 +6,12 @@
     <title>Ticket #{{ ticket_number or order.id }}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='ticket.css') }}">
 </head>
-<body class="ticket-body">
+<body
+    class="ticket-body"
+    data-app-timezone="{{ system_preferences.timezone if system_preferences else 'America/El_Salvador' }}"
+    data-date-format="{{ system_preferences.date_format if system_preferences else 'dd/mm/yyyy' }}"
+    data-time-format="{{ system_preferences.time_format if system_preferences else '12h' }}"
+>
     <main class="ticket-page">
         <section class="ticket-sheet">
             <div class="ticket-actions no-print">
@@ -15,6 +20,10 @@
             </div>
 
             <header class="ticket-header">
+                {% if business_logo_url %}
+                    <img class="ticket-logo" src="{{ business_logo_url }}" alt="{{ app_name }} logo">
+                {% endif %}
+                <h1>{{ app_name | default('Restobar') }}</h1>
                 <p>Fecha: <span data-local-datetime="{{ order.created_at|datetime_iso }}">{{ order.created_at|datetime_short }}</span></p>
                 <p>Ticket No. {{ ticket_number or order.id }}</p>
                 {% if ticket_label %}
@@ -67,7 +76,7 @@
             </section>
 
             <footer class="ticket-footer">
-                <p>Gracias por su compra.</p>
+                <p>{{ system_preferences.ticket_footer if system_preferences else 'Gracias por su compra.' }}</p>
             </footer>
         </section>
     </main>

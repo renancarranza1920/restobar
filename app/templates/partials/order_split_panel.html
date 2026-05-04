@@ -107,7 +107,7 @@
                                 <article class="split-product-row"
                                     data-split-row
                                     data-item-name="{{ product.nombre if product else 'Producto' }}"
-                                    data-item-quantity="{{ row.item.cantidad }}"
+                                    data-item-quantity="{{ row.quantity }}"
                                     data-item-price="{{ row.item.precio_unitario }}"
                                     data-item-kind="{{ 'food' if row.item.requiere_cocina else 'drink' }}">
                                     <div class="split-product-info">
@@ -116,7 +116,7 @@
                                         </span>
                                         <div>
                                             <strong>{{ product.nombre if product else '-' }}</strong>
-                                            <span>{{ row.item.cantidad }} uds - {{ row.item.precio_unitario|money }} c/u - {{ row.item.subtotal|money }}</span>
+                                            <span>{{ row.quantity }} uds - {{ row.item.precio_unitario|money }} c/u - {{ row.subtotal|money }}</span>
                                         </div>
                                     </div>
 
@@ -129,14 +129,14 @@
                                                 </span>
                                                 <input
                                                     type="hidden"
-                                                    name="item_{{ row.item.id }}_person_{{ person }}"
+                                                    name="group_{{ row.key }}_person_{{ person }}"
                                                     value="{{ row.assignments.get(person, 0) }}"
                                                     data-split-input
                                                     data-person="{{ person }}"
                                                 >
                                             {% endfor %}
                                         </div>
-                                        <span class="split-pending-pill"><b data-row-remaining>{{ row.item.cantidad - row.assigned_total }}</b> pendiente</span>
+                                        <span class="split-pending-pill"><b data-row-remaining>{{ row.quantity - row.assigned_total }}</b> pendiente</span>
                                     </div>
 
                                     <div class="split-active-controls">

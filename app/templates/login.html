@@ -4,10 +4,16 @@
 <section class="login-shell">
     <article class="login-card">
         <div class="login-brand">
-            <div class="login-mark">R</div>
+            <div class="login-mark {{ 'has-image' if business_logo_url else '' }}">
+                {% if business_logo_url %}
+                    <img src="{{ business_logo_url }}" alt="{{ app_name }} logo">
+                {% else %}
+                    {{ business_initial | default('R') }}
+                {% endif %}
+            </div>
             <div class="brand-details">
-                <strong>Restobar</strong>
-                <span>Operacion clara para tu restaurante</span>
+                <strong>{{ app_name | default('Restobar') }}</strong>
+                <span>{{ business_tagline | default('Operacion clara para tu restaurante') }}</span>
             </div>
         </div>
 

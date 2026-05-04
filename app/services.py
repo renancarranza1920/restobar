@@ -14,6 +14,7 @@ from .extensions import db
 from .models import (
     AuditLog,
     Categoria,
+    ListaEspera,
     Mesa,
     MovimientoCaja,
     MovimientoInventario,
@@ -22,6 +23,7 @@ from .models import (
     OrdenDivisionItem,
     OrdenItem,
     Pago,
+    PreferenciaSistema,
     Producto,
     Rol,
     SesionCaja,
@@ -49,6 +51,7 @@ MODULE_PERMISSION_ALIASES = {
     "usuarios": "usuarios.view",
     "reportes": "reportes.view",
     "auditoria": "auditoria.view",
+    "preferencias": "preferencias.view",
 }
 
 FEATURE_DEFINITIONS = [
@@ -118,6 +121,12 @@ FEATURE_DEFINITIONS = [
         "description": "Consultar y exportar reportes operativos y financieros.",
         "group": "Finanzas",
     },
+    {
+        "key": "preferencias",
+        "label": "Preferencias",
+        "description": "Personalizar identidad, logo, tema y formatos de fecha/hora.",
+        "group": "Configuracion",
+    },
 ]
 
 PERMISSION_DEFINITIONS = [
@@ -167,6 +176,8 @@ PERMISSION_DEFINITIONS = [
     {"key": "roles.edit", "label": "Editar roles", "description": "Modificar permisos de roles.", "group": "Seguridad"},
     {"key": "roles.delete", "label": "Eliminar roles", "description": "Eliminar roles sin usuarios.", "group": "Seguridad"},
     {"key": "security.change_password", "label": "Cambiar contrasena propia", "description": "Actualizar la contrasena de la cuenta actual.", "group": "Seguridad"},
+    {"key": "preferencias.view", "label": "Ver preferencias", "description": "Consultar la personalizacion general del sistema.", "group": "Configuracion"},
+    {"key": "preferencias.edit", "label": "Editar preferencias", "description": "Cambiar nombre, logo, tema y formatos de fecha/hora.", "group": "Configuracion"},
     {"key": "auditoria.view", "label": "Ver auditoria", "description": "Consultar cambios importantes del sistema.", "group": "Auditoria"},
 ]
 
@@ -288,6 +299,13 @@ NAV_ITEMS = [
         },
     },
     {
+        "feature": "preferencias",
+        "label": "Preferencias",
+        "icon": "fa-sliders",
+        "endpoint": "web.preferencias",
+        "active_endpoints": {"web.preferencias", "web.actualizar_preferencias"},
+    },
+    {
         "feature": "auditoria",
         "label": "Auditoria",
         "icon": "fa-clock-rotate-left",
@@ -339,19 +357,223 @@ def bool_from_form(value):
     return str(value).strip().lower() in {"1", "true", "on", "si", "yes"}
 
 
+DATE_FORMAT_CHOICES = [
+    {"value": "dd/mm/yyyy", "label": "31/12/2026"},
+    {"value": "mm/dd/yyyy", "label": "12/31/2026"},
+    {"value": "yyyy-mm-dd", "label": "2026-12-31"},
+]
+TIME_FORMAT_CHOICES = [
+    {"value": "12h", "label": "03:45 PM"},
+    {"value": "24h", "label": "15:45"},
+]
+SIDEBAR_CLOCK_CHOICES = [
+    {"value": "date", "label": "Solo fecha"},
+    {"value": "datetime", "label": "Fecha y hora"},
+    {"value": "time", "label": "Solo hora"},
+]
+TIMEZONE_CHOICES = [
+    "America/El_Salvador",
+    "America/Guatemala",
+    "America/Tegucigalpa",
+    "America/Managua",
+    "America/Costa_Rica",
+    "America/Panama",
+    "America/Mexico_City",
+    "America/New_York",
+    "America/Los_Angeles",
+]
+SYSTEM_PREFERENCE_KEYS = {
+    "business_name",
+    "business_tagline",
+    "business_logo_url",
+    "timezone",
+    "date_format",
+    "time_format",
+    "sidebar_clock",
+    "default_theme",
+    "ticket_footer",
+}
+DATE_FORMAT_PATTERNS = {
+    "dd/mm/yyyy": "%d/%m/%Y",
+    "mm/dd/yyyy": "%m/%d/%Y",
+    "yyyy-mm-dd": "%Y-%m-%d",
+}
+TIME_FORMAT_PATTERNS = {
+    "12h": "%I:%M %p",
+    "24h": "%H:%M",
+}
+
+
 def theme_choices():
     return {"light", "dark"}
 
 
 def default_theme():
-    return "light"
+    try:
+        theme = get_system_preferences().get("default_theme", "light")
+    except Exception:
+        theme = "light"
+    return theme if theme in theme_choices() else "light"
+
+
+def configured_timezone_name():
+    try:
+        return current_app.config.get("APP_TIMEZONE", "America/El_Salvador")
+    except RuntimeError:
+        return "America/El_Salvador"
+
+
+def valid_timezone_name(value):
+    if not value:
+        return False
+    try:
+        ZoneInfo(value)
+        return True
+    except (ZoneInfoNotFoundError, ValueError):
+        return False
+
+
+def default_system_preferences():
+    return {
+        "business_name": "Restobar",
+        "business_tagline": "Operacion clara para tu restaurante",
+        "business_logo_url": "",
+        "timezone": configured_timezone_name(),
+        "date_format": "dd/mm/yyyy",
+        "time_format": "12h",
+        "sidebar_clock": "date",
+        "default_theme": "light",
+        "ticket_footer": "Gracias por su compra.",
+    }
+
+
+def valid_public_image_reference(value):
+    if not value:
+        return True
+    return value.startswith("http://") or value.startswith("https://") or value.startswith(
+        "/static/"
+    )
+
+
+def normalize_system_preferences(values=None):
+    defaults = default_system_preferences()
+    fallback_timezone = (
+        defaults["timezone"]
+        if valid_timezone_name(defaults["timezone"])
+        else "America/El_Salvador"
+    )
+    raw_values = {**defaults, **(values or {})}
+
+    business_name = str(raw_values.get("business_name") or "").strip()[:80]
+    business_tagline = str(raw_values.get("business_tagline") or "").strip()[:140]
+    logo_url = str(raw_values.get("business_logo_url") or "").strip()[:255]
+    timezone_name = str(raw_values.get("timezone") or "").strip()
+    date_format = str(raw_values.get("date_format") or "").strip()
+    time_format = str(raw_values.get("time_format") or "").strip()
+    sidebar_clock = str(raw_values.get("sidebar_clock") or "").strip()
+    default_theme_value = str(raw_values.get("default_theme") or "").strip()
+    ticket_footer = str(raw_values.get("ticket_footer") or "").strip()[:160]
+
+    if not business_name:
+        business_name = defaults["business_name"]
+    if not business_tagline:
+        business_tagline = defaults["business_tagline"]
+    if not valid_public_image_reference(logo_url):
+        logo_url = ""
+    if not valid_timezone_name(timezone_name):
+        timezone_name = fallback_timezone
+    if date_format not in DATE_FORMAT_PATTERNS:
+        date_format = defaults["date_format"]
+    if time_format not in TIME_FORMAT_PATTERNS:
+        time_format = defaults["time_format"]
+    if sidebar_clock not in {choice["value"] for choice in SIDEBAR_CLOCK_CHOICES}:
+        sidebar_clock = defaults["sidebar_clock"]
+    if default_theme_value not in theme_choices():
+        default_theme_value = defaults["default_theme"]
+    if not ticket_footer:
+        ticket_footer = defaults["ticket_footer"]
+
+    return {
+        "business_name": business_name,
+        "business_tagline": business_tagline,
+        "business_logo_url": logo_url,
+        "timezone": timezone_name,
+        "date_format": date_format,
+        "time_format": time_format,
+        "sidebar_clock": sidebar_clock,
+        "default_theme": default_theme_value,
+        "ticket_footer": ticket_footer,
+    }
+
+
+def system_preferences_table_exists():
+    try:
+        return inspect(db.engine).has_table("preferencias_sistema")
+    except Exception:
+        return False
+
+
+def get_system_preferences():
+    preferences = default_system_preferences()
+    if system_preferences_table_exists():
+        rows = PreferenciaSistema.query.all()
+        for row in rows:
+            if row.clave in SYSTEM_PREFERENCE_KEYS:
+                preferences[row.clave] = row.valor or ""
+    return normalize_system_preferences(preferences)
+
+
+def save_system_preferences(values):
+    preferences = normalize_system_preferences(values)
+    if not system_preferences_table_exists():
+        PreferenciaSistema.__table__.create(db.engine)
+
+    for key, value in preferences.items():
+        setting = db.session.get(PreferenciaSistema, key)
+        if setting is None:
+            setting = PreferenciaSistema(clave=key)
+            db.session.add(setting)
+        setting.valor = value
+    return preferences
+
+
+def system_preference_choices():
+    timezone_values = list(TIMEZONE_CHOICES)
+    current_timezone = get_system_preferences().get("timezone", configured_timezone_name())
+    if current_timezone not in timezone_values:
+        timezone_values.insert(0, current_timezone)
+
+    return {
+        "date_formats": DATE_FORMAT_CHOICES,
+        "time_formats": TIME_FORMAT_CHOICES,
+        "sidebar_clocks": SIDEBAR_CLOCK_CHOICES,
+        "themes": [
+            {"value": "light", "label": "Claro"},
+            {"value": "dark", "label": "Oscuro"},
+        ],
+        "timezones": [
+            {"value": value, "label": value.replace("_", " ")}
+            for value in timezone_values
+            if valid_timezone_name(value)
+        ],
+    }
+
+
+def business_initial(preferences=None):
+    preferences = preferences or get_system_preferences()
+    business_name = preferences.get("business_name") or "Restobar"
+    return business_name[:1].upper()
 
 
 def app_timezone():
-    timezone_name = current_app.config.get("APP_TIMEZONE", "America/El_Salvador")
+    timezone_name = configured_timezone_name()
+    try:
+        timezone_name = get_system_preferences().get("timezone") or timezone_name
+    except Exception:
+        pass
     try:
         return ZoneInfo(timezone_name)
-    except ZoneInfoNotFoundError:
+    except (ZoneInfoNotFoundError, ValueError):
         return datetime.now().astimezone().tzinfo or timezone.utc
 
 
@@ -369,6 +591,28 @@ def local_now():
 
 def local_today():
     return local_now().date()
+
+
+def format_local_datetime(value, mode="datetime", preferences=None):
+    if not value:
+        return "--"
+
+    preferences = preferences or get_system_preferences()
+    localized_value = localize_datetime(value)
+    date_pattern = DATE_FORMAT_PATTERNS.get(
+        preferences.get("date_format"),
+        DATE_FORMAT_PATTERNS["dd/mm/yyyy"],
+    )
+    time_pattern = TIME_FORMAT_PATTERNS.get(
+        preferences.get("time_format"),
+        TIME_FORMAT_PATTERNS["12h"],
+    )
+
+    if mode == "date":
+        return localized_value.strftime(date_pattern)
+    if mode == "time":
+        return localized_value.strftime(time_pattern)
+    return localized_value.strftime(f"{date_pattern} {time_pattern}")
 
 
 def utc_bounds_for_local_range(start_date, end_date=None):
@@ -525,6 +769,7 @@ def default_endpoint_for_user(user):
         ("inventario", "web.inventario"),
         ("reportes", "web.reportes"),
         ("usuarios", "web.usuarios"),
+        ("preferencias", "web.preferencias"),
     ]
     for feature, endpoint in preferred_endpoints:
         if user_can(user, feature):
@@ -655,6 +900,31 @@ def bootstrap_security_schema():
         AuditLog.__table__.create(db.engine)
 
 
+def bootstrap_system_preferences():
+    inspector = inspect(db.engine)
+    if not inspector.has_table("preferencias_sistema"):
+        PreferenciaSistema.__table__.create(db.engine)
+
+    changed = False
+    for key, value in normalize_system_preferences(default_system_preferences()).items():
+        setting = db.session.get(PreferenciaSistema, key)
+        if setting is None:
+            setting = PreferenciaSistema(clave=key, valor=value)
+            db.session.add(setting)
+            changed = True
+
+    if changed:
+        db.session.commit()
+
+
+def bootstrap_waitlist_schema():
+    inspector = inspect(db.engine)
+    if not inspector.has_table("usuarios") or not inspector.has_table("mesas"):
+        return
+    if not inspector.has_table("lista_espera"):
+        ListaEspera.__table__.create(db.engine)
+
+
 def audit_event(action, entity, entity_id=None, summary=None, details=None, commit=False):
     try:
         user_id = current_user.id if getattr(current_user, "is_authenticated", False) else None
@@ -774,6 +1044,16 @@ def get_mesas_disponibles():
         .order_by(Mesa.numero.asc())
         .all()
     )
+
+
+def get_waitlist_entries(status="esperando"):
+    query = ListaEspera.query.options(
+        joinedload(ListaEspera.mesa).joinedload(Mesa.zona),
+        joinedload(ListaEspera.usuario),
+    )
+    if status:
+        query = query.filter_by(estado=status)
+    return query.order_by(ListaEspera.created_at.asc(), ListaEspera.id.asc()).all()
 
 
 def get_categorias():
@@ -1527,22 +1807,148 @@ def build_split_matrix(order, people_count):
         for division_item in division.items:
             existing[(division_item.orden_item_id, person)] = division_item.cantidad
 
-    rows = []
-    for item in order.items_activos:
-        assignments = {}
-        assigned_total = 0
-        for person in range(1, people_count + 1):
-            qty = existing.get((item.id, person), 0)
-            assignments[person] = qty
-            assigned_total += qty
-        rows.append(
+    grouped_rows = {}
+    for item in sorted(order.items_activos, key=lambda item: item.id or 0):
+        key = split_group_key(item)
+        group = grouped_rows.setdefault(
+            key,
             {
                 "item": item,
-                "assignments": assignments,
-                "assigned_total": assigned_total,
-            }
+                "items": [],
+                "key": "",
+                "quantity": 0,
+                "subtotal": ZERO,
+                "assignments": {person: 0 for person in range(1, people_count + 1)},
+                "assigned_total": 0,
+            },
         )
-    return rows
+        group["items"].append(item)
+        group["quantity"] += item.cantidad
+        group["subtotal"] = money(as_decimal(group["subtotal"]) + item.subtotal)
+
+        for person in range(1, people_count + 1):
+            qty = existing.get((item.id, person), 0)
+            group["assignments"][person] += qty
+            group["assigned_total"] += qty
+
+    rows = []
+    for group in grouped_rows.values():
+        group["item_ids"] = [item.id for item in group["items"]]
+        group["key"] = split_group_form_key(group["items"])
+        rows.append(group)
+    return sorted(rows, key=split_group_sort_key)
+
+
+def split_group_key(item):
+    product_name = item.producto.nombre if item.producto else "Producto"
+    return (
+        product_name.strip().casefold(),
+        money(item.precio_unitario),
+        bool(item.requiere_cocina),
+    )
+
+
+def item_category_name(item):
+    if item.producto and item.producto.categoria:
+        return item.producto.categoria.nombre
+    return "Sin categoria"
+
+
+def split_group_sort_key(group):
+    item = group["item"]
+    product_name = item.producto.nombre if item.producto else "Producto"
+    first_item_id = min((group_item.id or 0 for group_item in group["items"]), default=0)
+    return (
+        item_category_name(item).strip().casefold(),
+        product_name.strip().casefold(),
+        money(item.precio_unitario),
+        first_item_id,
+    )
+
+
+def split_group_form_key(items):
+    return "_".join(str(item.id) for item in sorted(items, key=lambda item: item.id or 0))
+
+
+def distribute_group_assignments(items, group_assignments, people_count):
+    assignments = {}
+    remaining_by_person = {
+        person: max(parse_int(group_assignments.get(person, 0), 0), 0)
+        for person in range(1, people_count + 1)
+    }
+
+    for item in sorted(items, key=lambda item: item.id or 0):
+        remaining_item_qty = item.cantidad
+        for person in range(1, people_count + 1):
+            qty = min(remaining_item_qty, remaining_by_person[person])
+            assignments[(item.id, person)] = qty
+            remaining_item_qty -= qty
+            remaining_by_person[person] -= qty
+            if remaining_item_qty <= 0:
+                break
+
+        for person in range(1, people_count + 1):
+            assignments.setdefault((item.id, person), 0)
+
+    return assignments
+
+
+def build_split_assignment_groups(order):
+    grouped_rows = {}
+    for item in sorted(order.items_activos, key=lambda item: item.id or 0):
+        key = split_group_key(item)
+        group = grouped_rows.setdefault(key, {"items": [], "quantity": 0})
+        group["items"].append(item)
+        group["quantity"] += item.cantidad
+    return list(grouped_rows.values())
+
+
+def item_product_name(item):
+    return item.producto.nombre if item.producto else "Producto"
+
+
+def validate_group_split_assignment(order, people_count, form_data):
+    errors = []
+    labels = {}
+    assignments = {}
+
+    if people_count < 2 or people_count > 10:
+        return None, None, ["La cuenta solo puede dividirse entre 2 y 10 personas."]
+
+    for person in range(1, people_count + 1):
+        label = (form_data.get(f"label_{person}") or "").strip()
+        labels[person] = label
+
+    for group in build_split_assignment_groups(order):
+        items = group["items"]
+        form_key = split_group_form_key(items)
+        item_name = item_product_name(items[0])
+        group_total = group["quantity"]
+        group_assignments = {}
+        total_assigned = 0
+
+        for person in range(1, people_count + 1):
+            raw_value = form_data.get(f"group_{form_key}_person_{person}", "0")
+            qty = parse_int(raw_value, 0)
+            if qty < 0:
+                errors.append(f"No puedes usar cantidades negativas en {item_name}.")
+            if qty > group_total:
+                errors.append(
+                    f"No puedes asignar mas de {group_total} unidades de {item_name} a una persona."
+                )
+            group_assignments[person] = qty
+            total_assigned += qty
+
+        if total_assigned != group_total:
+            errors.append(
+                f"Debes repartir exactamente {group_total} unidades de {item_name}."
+            )
+
+        assignments.update(
+            distribute_group_assignments(items, group_assignments, people_count)
+        )
+
+    return labels, assignments, errors
 
 
 def save_split_configuration(order, people_count, labels, assignment_map):
@@ -1584,6 +1990,9 @@ def save_split_configuration(order, people_count, labels, assignment_map):
 
 
 def validate_split_assignment(order, people_count, form_data):
+    if any(key.startswith("group_") for key in form_data):
+        return validate_group_split_assignment(order, people_count, form_data)
+
     errors = []
     labels = {}
     assignments = {}

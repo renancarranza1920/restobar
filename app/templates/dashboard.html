@@ -23,7 +23,7 @@
     <section class="filament-stats-grid mb-6">
         
         {% if user_can(current_user, 'ordenes.view') %}
-        <article class="stat-card panel hover-lift">
+        <a class="stat-card panel hover-lift dashboard-action-card" href="{{ url_for('web.ordenes', fecha=dashboard_date) }}">
             <div class="stat-header">
                 <div class="stat-icon bg-success-light text-success">
                     <i class="fa-solid fa-receipt"></i>
@@ -34,11 +34,11 @@
             <p class="stat-desc text-success mt-1 font-medium text-xs">
                 <i class="fa-solid fa-arrow-trend-up"></i> Total registradas hoy
             </p>
-        </article>
+        </a>
         {% endif %}
 
         {% if user_can(current_user, 'cocina.view') or user_can(current_user, 'ordenes.deliver') %}
-        <article class="stat-card panel hover-lift">
+        <a class="stat-card panel hover-lift dashboard-action-card" href="{{ url_for('web.cocina') if user_can(current_user, 'cocina.view') else url_for('web.ordenes', estado='abierta') }}">
             <div class="stat-header">
                 <div class="stat-icon bg-warning-light text-warning">
                     <i class="fa-solid fa-fire-burner"></i>
@@ -49,11 +49,11 @@
             <p class="stat-desc text-warning mt-1 font-medium text-xs">
                 <i class="fa-solid fa-clock"></i> Cocina / Servicio
             </p>
-        </article>
+        </a>
         {% endif %}
 
         {% if user_can(current_user, 'caja.view') or user_can(current_user, 'reportes.view') %}
-        <article class="stat-card panel hover-lift">
+        <a class="stat-card panel hover-lift dashboard-action-card" href="{{ url_for('web.reportes') if user_can(current_user, 'reportes.view') else url_for('web.caja') }}">
             <div class="stat-header">
                 <div class="stat-icon bg-primary-light text-primary">
                     <i class="fa-solid fa-sack-dollar"></i>
@@ -64,11 +64,11 @@
             <p class="stat-desc text-primary mt-1 font-medium text-xs">
                 <i class="fa-solid fa-chart-line"></i> Totales cobrados
             </p>
-        </article>
+        </a>
         {% endif %}
 
         {% if user_can(current_user, 'mesas.view') %}
-        <article class="stat-card panel hover-lift">
+        <a class="stat-card panel hover-lift dashboard-action-card" href="{{ url_for('web.mesas') }}">
             <div class="stat-header">
                 <div class="stat-icon bg-gray-light text-muted">
                     <i class="fa-solid fa-chair"></i>
@@ -79,7 +79,7 @@
             <p class="stat-desc text-muted mt-1 font-medium text-xs">
                 Mesas en uso actualmente
             </p>
-        </article>
+        </a>
         {% endif %}
 
     </section>

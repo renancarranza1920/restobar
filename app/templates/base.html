@@ -9,10 +9,15 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='inventory-form-visibility') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='waitlist-modal-dashboard-order') }}">
     {% block head %}{% endblock %}
 </head>
-<body class="theme-{{ current_theme | default('light') }} filament-body {{ 'auth-body' if current_user.is_authenticated else 'guest-body' }}">
+<body
+    class="theme-{{ current_theme | default('light') }} filament-body {{ 'auth-body' if current_user.is_authenticated else 'guest-body' }}"
+    data-app-timezone="{{ system_preferences.timezone if system_preferences else 'America/El_Salvador' }}"
+    data-date-format="{{ system_preferences.date_format if system_preferences else 'dd/mm/yyyy' }}"
+    data-time-format="{{ system_preferences.time_format if system_preferences else '12h' }}"
+>
     <script>
         try {
             if (window.localStorage.getItem("restobar:sidebar-collapsed") === "true") {
@@ -32,9 +37,15 @@
         <aside class="filament-sidebar shadow-md" data-sidebar>
             <div class="sidebar-header border-b">
                 <a class="flex items-center gap-3 w-full" href="{{ url_for(nav_items[0].endpoint) if nav_items else '#' }}">
-                    <div class="brand-avatar shadow-sm">R</div>
+                    <div class="brand-avatar shadow-sm {{ 'has-image' if business_logo_url else '' }}">
+                        {% if business_logo_url %}
+                            <img src="{{ business_logo_url }}" alt="{{ app_name }} logo">
+                        {% else %}
+                            {{ business_initial | default('R') }}
+                        {% endif %}
+                    </div>
                     <div class="brand-info">
-                        <h1 class="brand-title">Restobar</h1>
+                        <h1 class="brand-title">{{ app_name | default('Restobar') }}</h1>
                         <span class="brand-subtitle text-xs">{{ role_label(current_user.rol) if role_label else 'Administrador' }}</span>
                     </div>
                 </a>
@@ -47,7 +58,11 @@
                 </button>
             </div>
 
-            <div class="sidebar-date-badge shadow-sm mt-4" data-local-current-date>
+            <div
+                class="sidebar-date-badge shadow-sm mt-4"
+                data-local-current-datetime
+                data-local-format="{{ system_preferences.sidebar_clock if system_preferences else 'date' }}"
+            >
                 {{ now_label | default('17/04/2026') }}
             </div>
 
@@ -210,7 +225,7 @@
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='app.js', v='restore-before-payment-changes') }}"></script>
+    <script src="{{ url_for('static', filename='app.js', v='preferences-module') }}"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

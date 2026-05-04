@@ -12,6 +12,12 @@ CREATE TABLE roles (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
+CREATE TABLE preferencias_sistema (
+    clave VARCHAR(80) PRIMARY KEY,
+    valor TEXT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
 CREATE TABLE usuarios (
     id INT AUTO_INCREMENT PRIMARY KEY,
     nickname VARCHAR(50) UNIQUE NOT NULL,
@@ -51,6 +57,21 @@ CREATE TABLE mesas (
     estado ENUM('disponible', 'ocupada') DEFAULT 'disponible',
     limpieza_estado ENUM('limpia', 'sucia') DEFAULT 'limpia',
     FOREIGN KEY (zona_id) REFERENCES zonas(id)
+);
+
+CREATE TABLE lista_espera (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    nombre_cliente VARCHAR(100) NOT NULL,
+    personas INT NOT NULL DEFAULT 1,
+    telefono VARCHAR(40) NULL,
+    notas VARCHAR(200) NULL,
+    estado ENUM('esperando', 'sentado', 'cancelado') DEFAULT 'esperando' NOT NULL,
+    mesa_id INT NULL,
+    usuario_id INT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    closed_at TIMESTAMP NULL,
+    FOREIGN KEY (mesa_id) REFERENCES mesas(id),
+    FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
 );
 
 CREATE TABLE categorias (
@@ -176,6 +197,7 @@ CREATE INDEX idx_orden_division_items_division ON orden_division_items(division_
 CREATE INDEX idx_orden_division_items_item ON orden_division_items(orden_item_id);
 CREATE INDEX idx_audit_logs_created ON audit_logs(created_at);
 CREATE INDEX idx_audit_logs_usuario ON audit_logs(usuario_id);
+CREATE INDEX idx_lista_espera_estado ON lista_espera(estado, created_at);
 
 INSERT INTO zonas (nombre) VALUES ('Barra'), ('Patio');
 
@@ -187,7 +209,18 @@ INSERT INTO categorias (nombre, envia_a_cocina) VALUES
 ('Otros', FALSE);
 
 INSERT INTO roles (codigo, nombre, descripcion, permisos) VALUES
-('administrador', 'Administrador', 'Acceso completo a todas las areas del sistema.', 'auditoria.view,caja.cancel_order,caja.charge,caja.close,caja.movements,caja.open,caja.view,categorias.create,categorias.delete,categorias.edit,categorias.view,cocina.prepare,cocina.view,dashboard.view,inventario.create,inventario.view,mesas.create,mesas.delete,mesas.edit,mesas.view,ordenes.cancel_item,ordenes.create,ordenes.deliver,ordenes.items,ordenes.ticket,ordenes.view,productos.availability,productos.create,productos.delete,productos.edit,productos.view,reportes.export,reportes.view,roles.create,roles.delete,roles.edit,roles.view,security.change_password,usuarios.create,usuarios.delete,usuarios.edit,usuarios.reset_password,usuarios.view,zonas.create,zonas.delete,zonas.edit,zonas.view');
+('administrador', 'Administrador', 'Acceso completo a todas las areas del sistema.', 'auditoria.view,caja.cancel_order,caja.charge,caja.close,caja.movements,caja.open,caja.view,categorias.create,categorias.delete,categorias.edit,categorias.view,cocina.prepare,cocina.view,dashboard.view,inventario.create,inventario.view,mesas.create,mesas.delete,mesas.edit,mesas.view,ordenes.cancel_item,ordenes.create,ordenes.deliver,ordenes.items,ordenes.ticket,ordenes.view,preferencias.edit,preferencias.view,productos.availability,productos.create,productos.delete,productos.edit,productos.view,reportes.export,reportes.view,roles.create,roles.delete,roles.edit,roles.view,security.change_password,usuarios.create,usuarios.delete,usuarios.edit,usuarios.reset_password,usuarios.view,zonas.create,zonas.delete,zonas.edit,zonas.view');
+
+INSERT INTO preferencias_sistema (clave, valor) VALUES
+('business_name', 'Restobar'),
+('business_tagline', 'Operacion clara para tu restaurante'),
+('business_logo_url', ''),
+('timezone', 'America/El_Salvador'),
+('date_format', 'dd/mm/yyyy'),
+('time_format', '12h'),
+('sidebar_clock', 'date'),
+('default_theme', 'light'),
+('ticket_footer', 'Gracias por su compra.');
 
 INSERT INTO usuarios (nickname, nombre, apellido, password_hash, rol) VALUES
 ('admin', 'Admin', 'General', 'pbkdf2:sha256:cambiar_este_hash', 'administrador');

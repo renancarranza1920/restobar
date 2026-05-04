@@ -37,6 +37,7 @@ class Config:
     TAKEOUT_TABLE_ALIAS = getenv("TAKEOUT_TABLE_ALIAS", "Para llevar")
     TAKEOUT_ZONE_NAME = getenv("TAKEOUT_ZONE_NAME", "Sistema")
     PRODUCT_UPLOAD_DIR = BASE_DIR / "app" / "static" / "uploads" / "products"
+    BRANDING_UPLOAD_DIR = BASE_DIR / "app" / "static" / "uploads" / "branding"
 
     _database_url = getenv("DATABASE_URL")
 
