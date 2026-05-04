@@ -20,9 +20,9 @@
                     </span>
                 </div>
                 <div class="p-3 bg-white max-h-32 overflow-y-auto">
-                    {% for division_item in division.items %}
+                    {% for division_item in division.items_resumen %}
                         <div class="flex justify-between text-xs mb-2 border-b border-dashed border-gray-100 pb-1">
-                            <span class="truncate pr-2 text-muted">{{ division_item.orden_item.producto.nombre if division_item.orden_item else '-' }} x{{ division_item.cantidad }}</span>
+                            <span class="truncate pr-2 text-muted">{{ division_item.descripcion }} x{{ division_item.cantidad }}</span>
                             <strong class="text-gray-800">{{ division_item.subtotal|money }}</strong>
                         </div>
                     {% endfor %}

@@ -187,6 +187,71 @@ def remember_ticket_payment(order_id, amount, method, division_id=None):
     session["ticket_payments"] = ticket_payments
 
 
+def format_audit_money(value):
+    return f"${parse_decimal(value):,.2f}"
+
+
+def payment_cash_context(amount, method):
+    received = parse_decimal(request.form.get("tendered_amount"), amount)
+    if method != "efectivo" or received <= 0:
+        received = amount
+    if received < amount:
+        received = amount
+
+    change = received - amount if method == "efectivo" else parse_decimal("0")
+    return received, change
+
+
+def ticket_line_label(line):
+    return f"{line['quantity']} {line['description']}"
+
+
+def payment_items_summary(lines, limit=4):
+    labels = [ticket_line_label(line) for line in lines]
+    if len(labels) <= limit:
+        return ", ".join(labels)
+    remaining = len(labels) - limit
+    return f"{', '.join(labels[:limit])} y {remaining} mas"
+
+
+def audit_payment_summary(order, amount, method, received, change, label=None, lines=None):
+    method_label = "efectivo" if method == "efectivo" else "tarjeta"
+    target = f"{label} de la orden #{order.id}" if label else f"orden #{order.id}"
+    table_label = order.mesa.etiqueta if order.mesa else "Sin mesa"
+    summary = (
+        f"Se cobro {target} ({table_label}) por {format_audit_money(amount)} "
+        f"en {method_label}. Recibido: {format_audit_money(received)}. "
+        f"Cambio: {format_audit_money(change)}. Total orden: {format_audit_money(order.total)}. "
+        f"Saldo pendiente: {format_audit_money(order.saldo_pendiente)}."
+    )
+    items_summary = payment_items_summary(lines or [])
+    if items_summary:
+        summary = f"{summary} Productos: {items_summary}."
+    return summary
+
+
+def audit_payment_details(order, amount, method, received, change, label=None, lines=None):
+    return {
+        "orden_id": order.id,
+        "mesa": order.mesa.etiqueta if order.mesa else None,
+        "cuenta": label,
+        "metodo": method,
+        "monto_cobrado": amount,
+        "recibido": received,
+        "cambio": change,
+        "total_orden": order.total,
+        "saldo_pendiente": order.saldo_pendiente,
+        "productos": [
+            {
+                "cantidad": line["quantity"],
+                "descripcion": line["description"],
+                "subtotal": line["subtotal"],
+            }
+            for line in (lines or [])
+        ],
+    }
+
+
 def ticket_payment_context(order, total=None, division_id=None):
     ticket_payments = session.get("ticket_payments", {})
     stored = ticket_payments.get(ticket_payment_key(order.id, division_id), {})
@@ -212,31 +277,41 @@ def ticket_payment_context(order, total=None, division_id=None):
 
 
 def ticket_lines_for_order(order):
-    return [
+    lines = [
         {
             "quantity": item.cantidad,
             "description": item.producto.nombre if item.producto else "-",
-            "notes": item.notas,
+            "category": item.producto.categoria.nombre
+            if item.producto and item.producto.categoria
+            else "Sin categoria",
+            "notes": "" if item.requiere_cocina else item.notas,
             "subtotal": item.subtotal,
         }
         for item in order.items_activos
     ]
+    return sorted(lines, key=ticket_line_sort_key)
 
 
 def ticket_lines_for_division(division):
-    lines = []
-    for division_item in division.items:
-        order_item = division_item.orden_item
-        product = order_item.producto if order_item else None
-        lines.append(
-            {
-                "quantity": division_item.cantidad,
-                "description": product.nombre if product else "-",
-                "notes": order_item.notas if order_item else "",
-                "subtotal": division_item.subtotal,
-            }
-        )
-    return lines
+    lines = [
+        {
+            "quantity": item["cantidad"],
+            "description": item["descripcion"],
+            "category": item["categoria"],
+            "notes": "" if item["requiere_cocina"] else item["notas"],
+            "subtotal": item["subtotal"],
+        }
+        for item in division.items_resumen
+    ]
+    return sorted(lines, key=ticket_line_sort_key)
+
+
+def ticket_line_sort_key(item):
+    return (
+        (item.get("category") or "Sin categoria").strip().casefold(),
+        (item.get("description") or "").strip().casefold(),
+        item.get("subtotal"),
+    )
 
 
 def flash_low_stock_for_order(order):
@@ -2406,7 +2481,31 @@ def pagar_division(division_id):
     db.session.add(payment)
     db.session.flush()
     settle_order(division.orden)
-    audit_event("cobrar", "orden", division.orden_id, f"Se cobro {division.nombre_visible}.")
+    received, change = payment_cash_context(division.total, method)
+    lines = ticket_lines_for_division(division)
+    audit_event(
+        "cobrar",
+        "orden",
+        division.orden_id,
+        audit_payment_summary(
+            division.orden,
+            division.total,
+            method,
+            received,
+            change,
+            label=division.nombre_visible,
+            lines=lines,
+        ),
+        audit_payment_details(
+            division.orden,
+            division.total,
+            method,
+            received,
+            change,
+            label=division.nombre_visible,
+            lines=lines,
+        ),
+    )
     db.session.commit()
     remember_ticket_payment(division.orden_id, division.total, method, division_id=division.id)
     if division.orden.estado == "pagada":
@@ -2466,7 +2565,15 @@ def pagar_orden(order_id):
     db.session.add(payment)
     db.session.flush()
     settle_order(order)
-    audit_event("cobrar", "orden", order.id, f"Se registro pago en orden #{order.id}.", {"monto": amount, "metodo": method})
+    received, change = payment_cash_context(amount, method)
+    lines = ticket_lines_for_order(order)
+    audit_event(
+        "cobrar",
+        "orden",
+        order.id,
+        audit_payment_summary(order, amount, method, received, change, lines=lines),
+        audit_payment_details(order, amount, method, received, change, lines=lines),
+    )
     db.session.commit()
     remember_ticket_payment(order.id, amount, method)
     if order.estado == "pagada":
