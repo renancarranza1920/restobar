@@ -965,6 +965,14 @@ def bootstrap_table_layout_schema():
             )
             db.session.commit()
 
+    if inspector.has_table("orden_items"):
+        order_item_columns = {column["name"] for column in inspector.get_columns("orden_items")}
+        if "cancel_reason" not in order_item_columns:
+            db.session.execute(
+                text("ALTER TABLE orden_items ADD COLUMN cancel_reason VARCHAR(255) NULL")
+            )
+            db.session.commit()
+
 
 def audit_event(action, entity, entity_id=None, summary=None, details=None, commit=False):
     try:
@@ -1512,6 +1520,7 @@ def build_cancelled_report(orders):
             subtotal = money(item.subtotal)
             category_name = item_category_name(item)
             product_name = item_product_name(item)
+            reason = (item.cancel_reason or "").strip() or "Sin motivo registrado"
 
             total_quantity += quantity
             total_amount = money(total_amount + subtotal)
@@ -1524,10 +1533,23 @@ def build_cancelled_report(orders):
                     "product": product_name,
                     "quantity": 0,
                     "amount": ZERO,
+                    "reasons": {},
                 },
             )
             product["quantity"] += quantity
             product["amount"] = money(product["amount"] + subtotal)
+            product["reasons"][reason] = product["reasons"].get(reason, 0) + quantity
+
+    for product in products.values():
+        reasons = sorted(
+            product["reasons"].items(),
+            key=lambda item: (item[1], item[0]),
+            reverse=True,
+        )
+        product["reasons_summary"] = ", ".join(
+            f"{reason} ({quantity})" if quantity > 1 else reason
+            for reason, quantity in reasons
+        )
 
     product_rows = sorted(
         products.values(),

@@ -151,6 +151,7 @@ CREATE TABLE orden_items (
     precio_unitario DECIMAL(10,2) NOT NULL,
     costo_unitario DECIMAL(10,2) DEFAULT 0,
     notas VARCHAR(200),
+    cancel_reason VARCHAR(255) NULL,
     estado ENUM('pendiente', 'listo', 'entregado', 'cancelado') DEFAULT 'pendiente',
     pagado BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

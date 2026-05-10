@@ -180,6 +180,10 @@
                 <span>Cantidad a cancelar</span>
                 <input data-confirm-quantity type="number" min="1" step="1" inputmode="numeric">
             </label>
+            <label class="confirm-reason-field" data-confirm-reason-wrap hidden>
+                <span data-confirm-reason-label>Motivo</span>
+                <textarea data-confirm-reason rows="3" maxlength="255" placeholder="Ej: producto vencido, defectuoso, salio mal o el cliente lo cancelo"></textarea>
+            </label>
             <div class="confirm-dialog-actions">
                 <button class="button button-ghost" type="button" data-confirm-cancel>Cancelar</button>
                 <button class="button button-danger" type="button" data-confirm-accept>Aceptar</button>

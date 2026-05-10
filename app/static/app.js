@@ -6,6 +6,9 @@
     const confirmAccept = confirmModal?.querySelector("[data-confirm-accept]");
     const confirmQuantityWrap = confirmModal?.querySelector("[data-confirm-quantity-wrap]");
     const confirmQuantityInput = confirmModal?.querySelector("[data-confirm-quantity]");
+    const confirmReasonWrap = confirmModal?.querySelector("[data-confirm-reason-wrap]");
+    const confirmReasonInput = confirmModal?.querySelector("[data-confirm-reason]");
+    const confirmReasonLabel = confirmModal?.querySelector("[data-confirm-reason-label]");
     const confirmCancelButtons = confirmModal
         ? confirmModal.querySelectorAll("[data-confirm-cancel]")
         : [];
@@ -283,6 +286,12 @@
             confirmQuantityInput.value = "";
             confirmQuantityInput.removeAttribute("max");
         }
+        if (confirmReasonWrap) {
+            confirmReasonWrap.hidden = true;
+        }
+        if (confirmReasonInput) {
+            confirmReasonInput.value = "";
+        }
         confirmModal.hidden = true;
         document.body.classList.remove("modal-open");
     }
@@ -307,11 +316,22 @@
                 confirmQuantityInput.min = "1";
             }
         }
+        if (confirmReasonWrap && confirmReasonInput) {
+            confirmReasonWrap.hidden = !options.reason;
+            confirmReasonInput.required = Boolean(options.reason?.required);
+            confirmReasonInput.value = "";
+            confirmReasonInput.name = options.reason?.name || "";
+            if (confirmReasonLabel) {
+                confirmReasonLabel.textContent = options.reason?.label || "Motivo";
+            }
+        }
         confirmModal.hidden = false;
         document.body.classList.add("modal-open");
         if (options.quantity && confirmQuantityInput) {
             confirmQuantityInput.focus();
             confirmQuantityInput.select();
+        } else if (options.reason && confirmReasonInput) {
+            confirmReasonInput.focus();
         } else {
             confirmAccept.focus();
         }
@@ -361,6 +381,31 @@
             form.appendChild(input);
         }
         input.value = value;
+    }
+
+    function confirmReasonOptionsForForm(form) {
+        if (!form || form.getAttribute("data-confirm-reason-required") !== "true") {
+            return null;
+        }
+        return {
+            required: true,
+            label: form.getAttribute("data-confirm-reason-label") || "Motivo",
+            name: form.getAttribute("data-confirm-reason-name") || "cancel_reason",
+        };
+    }
+
+    function writeConfirmReasonField(form, reasonOptions) {
+        if (!reasonOptions) {
+            return true;
+        }
+        const reason = (confirmReasonInput?.value || "").trim();
+        if (!reason) {
+            showLocalFlash("Escribe el motivo de la cancelación.", "error");
+            confirmReasonInput?.focus();
+            return false;
+        }
+        setHiddenFormValue(form, reasonOptions.name, reason);
+        return true;
     }
 
     function writePaymentTenderFields(form) {
@@ -498,10 +543,14 @@
     function openCancelItemConfirm(form, title, message) {
         const maxQuantity = Math.max(Number.parseInt(form.dataset.cancelItemMax || "1", 10) || 1, 1);
         const quantityInput = form.querySelector("[data-cancel-item-quantity]");
+        const reasonOptions = confirmReasonOptionsForForm(form);
         openConfirmModal(
             title,
             message,
             () => {
+                if (!writeConfirmReasonField(form, reasonOptions)) {
+                    return false;
+                }
                 const quantity = Math.max(
                     1,
                     Math.min(
@@ -514,7 +563,10 @@
                 }
                 submitForm(form);
             },
-            { quantity: { value: maxQuantity, max: maxQuantity } }
+            {
+                quantity: { value: maxQuantity, max: maxQuantity },
+                reason: reasonOptions,
+            }
         );
     }
 
@@ -912,7 +964,14 @@
         openConfirmModal(
             submitter.getAttribute("data-confirm-title"),
             submitter.getAttribute("data-confirm-message"),
-            () => submitForm(form)
+            () => {
+                const reasonOptions = confirmReasonOptionsForForm(form);
+                if (!writeConfirmReasonField(form, reasonOptions)) {
+                    return false;
+                }
+                submitForm(form);
+            },
+            { reason: confirmReasonOptionsForForm(form) }
         );
     });
 
@@ -950,7 +1009,18 @@
         const title = form.getAttribute("data-confirm-title");
         if (title) {
             event.preventDefault();
-            openConfirmModal(title, form.getAttribute("data-confirm-message"), () => submitForm(form));
+            const reasonOptions = confirmReasonOptionsForForm(form);
+            openConfirmModal(
+                title,
+                form.getAttribute("data-confirm-message"),
+                () => {
+                    if (!writeConfirmReasonField(form, reasonOptions)) {
+                        return false;
+                    }
+                    submitForm(form);
+                },
+                { reason: reasonOptions }
+            );
             return;
         }
 
@@ -963,7 +1033,10 @@
         confirmAccept.addEventListener("click", () => {
             const action = pendingConfirmAction;
             if (action) {
-                action();
+                const shouldClose = action();
+                if (shouldClose === false) {
+                    return;
+                }
             }
             closeConfirmModal();
         });
@@ -993,6 +1066,15 @@
 
             event.preventDefault();
             paymentAccept.click();
+        });
+    }
+
+    if (confirmReasonInput) {
+        confirmReasonInput.addEventListener("keydown", (event) => {
+            if ((event.ctrlKey || event.metaKey) && event.key === "Enter" && confirmAccept) {
+                event.preventDefault();
+                confirmAccept.click();
+            }
         });
     }
 

@@ -177,6 +177,7 @@
                                     <tr>
                                         <th>Producto</th>
                                         <th>Categoria</th>
+                                        <th>Motivos</th>
                                         <th class="text-center">Cant.</th>
                                         <th class="text-right">Monto</th>
                                     </tr>
@@ -186,6 +187,7 @@
                                         <tr class="hover-row">
                                             <td class="font-bold text-sm">{{ item.product }}</td>
                                             <td>{{ item.category }}</td>
+                                            <td class="text-xs text-muted">{{ item.reasons_summary or 'Sin motivo registrado' }}</td>
                                             <td class="text-center">{{ item.quantity }}</td>
                                             <td class="text-right font-bold text-danger">{{ item.amount|money }}</td>
                                         </tr>

@@ -1,3 +1,4 @@
+{% set canceled_items = order.items|selectattr('estado', 'equalto', 'cancelado')|list %}
 {% if order.items_activos %}
     <ul class="filament-list">
         {% for item in order.items_activos %}
@@ -45,7 +46,7 @@
                     {% endif %}
 
                     {% if user_can(current_user, 'ordenes') and order.estado == 'abierta' and not item.pagado and not division_locked and (item.estado != 'entregado' or owner_user) %}
-                        <form method="post" action="{{ url_for('web.cancelar_item', item_id=item.id) }}" data-cancel-item-form data-cancel-item-name="{{ item.producto.nombre if item.producto else 'este item' }}" data-cancel-item-max="{{ item.cantidad }}" data-confirm-title="Cancelar item" data-confirm-message="Se cancelará {{ item.producto.nombre if item.producto else 'este item' }} dentro de la orden #{{ order.id }}.">
+                        <form method="post" action="{{ url_for('web.cancelar_item', item_id=item.id) }}" data-cancel-item-form data-cancel-item-name="{{ item.producto.nombre if item.producto else 'este item' }}" data-cancel-item-max="{{ item.cantidad }}" data-confirm-title="Cancelar item" data-confirm-message="Se cancelará {{ item.producto.nombre if item.producto else 'este item' }} dentro de la orden #{{ order.id }}." data-confirm-reason-required="true" data-confirm-reason-label="Motivo de cancelación" data-confirm-reason-name="cancel_reason">
                             <input type="hidden" name="cancel_quantity" value="{{ item.cantidad }}" data-cancel-item-quantity>
                             <button class="button button-ghost button-small text-danger border-danger hover:bg-red-50" type="submit">
                                 <i class="fa-solid fa-xmark"></i> Cancelar
@@ -63,5 +64,27 @@
 {% else %}
     <div class="empty-state p-8 text-center">
         <p class="text-sm text-muted">Esta orden aún no tiene ítems activos.</p>
+    </div>
+{% endif %}
+
+{% if canceled_items %}
+    <div class="border-t border-gray-200 bg-danger-light p-3">
+        <div class="text-xs font-bold text-danger uppercase tracking-wide mb-2">
+            <i class="fa-solid fa-ban mr-1"></i> Productos cancelados
+        </div>
+        <ul class="filament-list">
+            {% for item in canceled_items %}
+                <li class="list-item bg-white hover-row">
+                    <div>
+                        <div class="text-sm font-bold text-danger">{{ item.producto.nombre if item.producto else 'Producto eliminado' }}</div>
+                        <div class="text-xs text-muted">{{ item.cantidad }} x {{ item.precio_unitario|money }} - {{ item.producto.categoria.nombre if item.producto and item.producto.categoria else 'General' }}</div>
+                        <div class="mt-2 text-xs text-danger font-medium">
+                            <i class="fa-solid fa-circle-info mr-1"></i> Motivo: {{ item.cancel_reason or 'Sin motivo registrado' }}
+                        </div>
+                    </div>
+                    <strong class="text-danger">-{{ item.subtotal|money }}</strong>
+                </li>
+            {% endfor %}
+        </ul>
     </div>
 {% endif %}

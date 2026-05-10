@@ -513,6 +513,7 @@ class OrdenItem(db.Model):
     precio_unitario = db.Column(db.Numeric(10, 2), nullable=False)
     costo_unitario = db.Column(db.Numeric(10, 2), default=0, nullable=False)
     notas = db.Column(db.String(200))
+    cancel_reason = db.Column(db.String(255))
     estado = db.Column(
         db.Enum(
             "pendiente",
@@ -557,6 +558,7 @@ class OrdenItem(db.Model):
             "estado": self.estado,
             "pagado": self.pagado,
             "notas": self.notas,
+            "cancel_reason": self.cancel_reason,
             "requiere_cocina": self.requiere_cocina,
         }
 

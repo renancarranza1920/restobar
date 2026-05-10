@@ -26,7 +26,7 @@
                 </a>
             {% endif %}
             {% if user_can(current_user, 'caja') and order.total_pagado == 0 and order.estado == 'abierta' and (owner_user or not has_delivered_items) %}
-                <form method="post" action="{{ url_for('web.cancelar_orden', order_id=order.id) }}" data-confirm-title="Cancelar orden" data-confirm-message="Se cancelara la orden completa #{{ order.id }}. Esta accion no se puede deshacer facilmente.">
+                <form method="post" action="{{ url_for('web.cancelar_orden', order_id=order.id) }}" data-confirm-title="Cancelar orden" data-confirm-message="Se cancelara la orden completa #{{ order.id }}. Esta accion no se puede deshacer facilmente." data-confirm-reason-required="true" data-confirm-reason-label="Motivo de cancelación" data-confirm-reason-name="cancel_reason">
                     <button class="button button-danger shadow-sm hover-lift" type="submit">
                         <i class="fa-solid fa-ban mr-1"></i> Cancelar orden
                     </button>

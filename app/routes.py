@@ -310,7 +310,7 @@ def ticket_payment_context(order, total=None, division_id=None):
     }
 
 
-def ticket_lines_for_order(order):
+def ticket_lines_for_order(order, include_cancelled=True):
     lines = [
         {
             "quantity": item.cantidad,
@@ -320,9 +320,27 @@ def ticket_lines_for_order(order):
             else "Sin categoria",
             "notes": "" if item.requiere_cocina else item.notas,
             "subtotal": item.subtotal,
+            "cancelled": False,
+            "cancel_reason": None,
         }
         for item in order.items_activos
     ]
+    if include_cancelled:
+        lines.extend(
+            {
+                "quantity": -int(item.cantidad or 0),
+                "description": item.producto.nombre if item.producto else "-",
+                "category": item.producto.categoria.nombre
+                if item.producto and item.producto.categoria
+                else "Sin categoria",
+                "notes": None,
+                "subtotal": -item.subtotal,
+                "cancelled": True,
+                "cancel_reason": item.cancel_reason or "Sin motivo registrado",
+            }
+            for item in order.items
+            if item.estado == "cancelado"
+        )
     return sorted(lines, key=ticket_line_sort_key)
 
 
@@ -344,8 +362,13 @@ def ticket_line_sort_key(item):
     return (
         (item.get("category") or "Sin categoria").strip().casefold(),
         (item.get("description") or "").strip().casefold(),
+        bool(item.get("cancelled")),
         item.get("subtotal"),
     )
+
+
+def cancellation_reason_from_form():
+    return (request.form.get("cancel_reason") or "").strip()[:255]
 
 
 def flash_low_stock_for_order(order):
@@ -635,12 +658,13 @@ def build_pdf_response(filename, start_date, end_date, report):
                 ]
             )
 
-    cancelled_rows = [["Producto cancelado", "Categoria", "Cant.", "Monto"]]
+    cancelled_rows = [["Producto cancelado", "Categoria", "Motivos", "Cant.", "Monto"]]
     for row in report["cancelled_report"]["products"]:
         cancelled_rows.append(
             [
                 Paragraph(escape(row["product"]), body_style),
                 Paragraph(escape(row["category"]), body_style),
+                Paragraph(escape(row.get("reasons_summary") or "Sin motivo registrado"), small_style),
                 str(row["quantity"]),
                 money(row["amount"]),
             ]
@@ -751,8 +775,8 @@ def build_pdf_response(filename, start_date, end_date, report):
                 Spacer(1, 8),
                 Paragraph("Productos cancelados", section_style),
                 style_data_table(
-                    Table(cancelled_rows, colWidths=[210, 170, 45, 67], repeatRows=1),
-                    align_right_cols=[2, 3],
+                    Table(cancelled_rows, colWidths=[150, 110, 145, 35, 52], repeatRows=1),
+                    align_right_cols=[3, 4],
                 ),
             ]
         )
@@ -2749,6 +2773,10 @@ def cancelar_item(item_id):
     if redirect_response:
         return redirect_response
 
+    cancel_reason = cancellation_reason_from_form()
+    if not cancel_reason:
+        flash("Indica el motivo por el que se cancela el producto.", "error")
+        return redirect(request.referrer or url_for("web.detalle_orden", order_id=item.orden_id))
     if item.estado == "cancelado":
         flash("Ese item ya estaba cancelado.", "error")
         return redirect(request.referrer or url_for("web.detalle_orden", order_id=item.orden_id))
@@ -2774,8 +2802,21 @@ def cancelar_item(item_id):
 
     if cancel_quantity >= item.cantidad:
         item.estado = "cancelado"
+        item.cancel_reason = cancel_reason
     else:
         item.cantidad -= cancel_quantity
+        cancelled_item = OrdenItem(
+            orden=item.orden,
+            producto=item.producto,
+            producto_id=item.producto_id,
+            cantidad=cancel_quantity,
+            precio_unitario=item.precio_unitario,
+            costo_unitario=item.costo_unitario,
+            notas=item.notas,
+            estado="cancelado",
+            cancel_reason=cancel_reason,
+        )
+        db.session.add(cancelled_item)
 
     sync_order(item.orden)
     settle_order(item.orden)
@@ -2783,7 +2824,14 @@ def cancelar_item(item_id):
         "cancelar_item",
         "orden_item",
         item.id,
-        f"Se cancelaron {cancel_quantity} de {original_quantity} unidades del item #{item.id}.",
+        f"Se cancelaron {cancel_quantity} de {original_quantity} unidades del item #{item.id}. Motivo: {cancel_reason}.",
+        {
+            "orden_id": item.orden_id,
+            "producto": item.producto.nombre if item.producto else None,
+            "cantidad_cancelada": cancel_quantity,
+            "cantidad_original": original_quantity,
+            "motivo": cancel_reason,
+        },
     )
     db.session.commit()
 
@@ -2986,7 +3034,7 @@ def pagar_orden(order_id):
     db.session.flush()
     settle_order(order)
     received, change = payment_cash_context(amount, method, tip_amount)
-    lines = ticket_lines_for_order(order)
+    lines = ticket_lines_for_order(order, include_cancelled=False)
     audit_event(
         "cobrar",
         "orden",
@@ -3023,12 +3071,26 @@ def cancelar_orden(order_id):
         flash("Solo administracion puede cancelar una orden con items ya entregados.", "error")
         return redirect(url_for("web.detalle_orden", order_id=order.id))
 
+    cancel_reason = cancellation_reason_from_form()
+    if not cancel_reason:
+        flash("Indica el motivo por el que se cancela la orden.", "error")
+        return redirect(url_for("web.detalle_orden", order_id=order.id))
+
     order.estado = "cancelada"
     for item in order.items:
         if item.estado != "cancelado":
             item.estado = "cancelado"
+            item.cancel_reason = cancel_reason
+        elif not item.cancel_reason:
+            item.cancel_reason = cancel_reason
     sync_order(order)
-    audit_event("cancelar", "orden", order.id, f"Orden #{order.id} cancelada.")
+    audit_event(
+        "cancelar",
+        "orden",
+        order.id,
+        f"Orden #{order.id} cancelada. Motivo: {cancel_reason}.",
+        {"motivo": cancel_reason},
+    )
     db.session.commit()
 
     flash(f"La orden #{order.id} fue cancelada.", "success")

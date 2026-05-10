@@ -2285,11 +2285,19 @@ body.guest-body.filament-body {
     margin: 0 0 1.25rem;
 }
 
-.confirm-quantity-field[hidden] {
+.confirm-reason-field {
+    display: grid;
+    gap: 0.45rem;
+    margin: 0 0 1.25rem;
+}
+
+.confirm-quantity-field[hidden],
+.confirm-reason-field[hidden] {
     display: none !important;
 }
 
-.confirm-quantity-field span {
+.confirm-quantity-field span,
+.confirm-reason-field span {
     color: var(--muted);
     font-size: 0.78rem;
     font-weight: 800;
@@ -2302,6 +2310,11 @@ body.guest-body.filament-body {
     font-size: 1.25rem;
     font-weight: 900;
     color: var(--accent-strong);
+}
+
+.confirm-reason-field textarea {
+    min-height: 88px;
+    resize: vertical;
 }
 
 .payment-dialog-message {
