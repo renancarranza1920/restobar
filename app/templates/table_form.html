@@ -7,7 +7,7 @@
             <div>
                 <p class="text-xs font-bold text-primary uppercase tracking-wide mb-1">Configuración</p>
                 <h1 class="text-2xl font-bold text-gray-800">{{ 'Editar mesa' if mesa else 'Nueva mesa' }}</h1>
-                <p class="text-sm text-muted mt-1">Define zona, alias y estado de limpieza inicial.</p>
+                <p class="text-sm text-muted mt-1">Define zona, alias, sillas y estado de limpieza inicial.</p>
             </div>
             <div class="page-actions">
                 <a class="button button-ghost hover-lift bg-white shadow-sm border-gray-200" href="{{ url_for('web.mesas') }}">
@@ -34,6 +34,11 @@
                     </div>
 
                     <div class="form-grid two-up mb-6">
+                        <div>
+                            <label for="sillas" class="block text-sm font-bold text-gray-800 mb-2">Sillas <span class="text-danger">*</span></label>
+                            <input id="sillas" name="sillas" type="number" min="1" max="60" value="{{ mesa.sillas if mesa else 4 }}" class="w-full rounded-md shadow-sm" required>
+                        </div>
+
                         <div>
                             <label for="zona_id" class="block text-sm font-bold text-gray-800 mb-2">Zona <span class="text-danger">*</span></label>
                             <select id="zona_id" name="zona_id" class="w-full rounded-md shadow-sm" required>

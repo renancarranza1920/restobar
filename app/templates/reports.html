@@ -5,32 +5,27 @@
 
     <header class="flex justify-between items-end mb-6">
         <div>
-            <p class="text-xs font-bold text-primary uppercase tracking-wide mb-1">Gerencia</p>
+            <p class="text-xs font-bold text-primary uppercase tracking-wide mb-1">Cierre</p>
             <h1 class="text-2xl font-bold text-gray-800">
-                <i class="fa-solid fa-chart-line mr-2 text-muted"></i> Reportes
+                <i class="fa-solid fa-file-invoice-dollar mr-2 text-muted"></i> Reporte de cierre
             </h1>
             <p class="text-sm text-muted mt-1">
-                Resumen ejecutivo del período, exportes y alertas operativas.
+                Ventas por categoria, cancelaciones y dinero cobrado para controlar el cierre del dia.
             </p>
         </div>
 
-        <div class="flex gap-2">
-            <a class="button button-primary hover-lift shadow-sm" href="{{ url_for('web.exportar_reporte_pdf', desde=start_date|date_input, hasta=end_date|date_input) }}">
-                <i class="fa-solid fa-file-pdf mr-2"></i> Exportar PDF
-            </a>
-            <a class="button button-secondary hover-lift shadow-sm" href="{{ url_for('web.exportar_reporte', kind='ventas', desde=start_date|date_input, hasta=end_date|date_input) }}">
-                <i class="fa-solid fa-file-csv mr-2"></i> CSV ventas
-            </a>
-        </div>
+        <a class="button button-primary hover-lift shadow-sm" href="{{ url_for('web.exportar_reporte_pdf', desde=start_date|date_input, hasta=end_date|date_input) }}">
+            <i class="fa-solid fa-file-pdf mr-2"></i> Exportar PDF
+        </a>
     </header>
 
     <article class="panel mb-6">
         <div class="panel-header border-b bg-gray-50">
             <div>
                 <h2 class="panel-title font-bold">
-                    <i class="fa-solid fa-calendar-range mr-2 text-muted"></i> Filtro de reportes
+                    <i class="fa-solid fa-calendar-range mr-2 text-muted"></i> Periodo
                 </h2>
-                <p class="text-sm text-muted mt-1">Selecciona el rango de fechas que deseas analizar.</p>
+                <p class="text-sm text-muted mt-1">Selecciona el rango que quieres revisar o imprimir.</p>
             </div>
 
             <form class="inline-filter" method="get" action="{{ url_for('web.reportes') }}">
@@ -53,56 +48,45 @@
         <article class="stat-card panel hover-lift">
             <div class="stat-header">
                 <div class="stat-icon bg-success-light text-success">
-                    <i class="fa-solid fa-sack-dollar"></i>
+                    <i class="fa-solid fa-cash-register"></i>
                 </div>
-                <h3 class="stat-label text-muted">Ventas</h3>
+                <h3 class="stat-label text-muted">Total cobrado</h3>
             </div>
-            <div class="stat-value mt-3">{{ report.sales_total|money }}</div>
-            <p class="stat-desc text-success mt-1 font-medium text-xs">Periodo seleccionado</p>
+            <div class="stat-value mt-3">{{ report.collected_total|money }}</div>
+            <p class="stat-desc text-success mt-1 font-medium text-xs">Ventas y propinas</p>
+        </article>
+
+        <article class="stat-card panel hover-lift">
+            <div class="stat-header">
+                <div class="stat-icon bg-success-light text-success">
+                    <i class="fa-solid fa-money-bill-wave"></i>
+                </div>
+                <h3 class="stat-label text-muted">Efectivo</h3>
+            </div>
+            <div class="stat-value mt-3">{{ report.cash_total|money }}</div>
+            <p class="stat-desc text-success mt-1 font-medium text-xs">Debe cuadrar con caja</p>
         </article>
 
         <article class="stat-card panel hover-lift">
             <div class="stat-header">
                 <div class="stat-icon bg-primary-light text-primary">
-                    <i class="fa-solid fa-chart-pie"></i>
+                    <i class="fa-solid fa-credit-card"></i>
                 </div>
-                <h3 class="stat-label text-muted">Utilidad estimada</h3>
+                <h3 class="stat-label text-muted">Tarjeta</h3>
             </div>
-            <div class="stat-value mt-3">{{ report.gross_profit|money }}</div>
-            <p class="stat-desc text-primary mt-1 font-medium text-xs">Ventas menos costo</p>
+            <div class="stat-value mt-3">{{ report.card_total|money }}</div>
+            <p class="stat-desc text-primary mt-1 font-medium text-xs">Cobros no efectivos</p>
         </article>
 
         <article class="stat-card panel hover-lift">
             <div class="stat-header">
                 <div class="stat-icon bg-warning-light text-warning">
-                    <i class="fa-solid fa-receipt"></i>
+                    <i class="fa-solid fa-utensils"></i>
                 </div>
-                <h3 class="stat-label text-muted">Ticket promedio</h3>
+                <h3 class="stat-label text-muted">Platillos vendidos</h3>
             </div>
-            <div class="stat-value mt-3">{{ report.average_ticket|money }}</div>
-            <p class="stat-desc text-warning mt-1 font-medium text-xs">Orden pagada promedio</p>
-        </article>
-
-        <article class="stat-card panel hover-lift">
-            <div class="stat-header">
-                <div class="stat-icon bg-gray-light text-muted">
-                    <i class="fa-solid fa-list-check"></i>
-                </div>
-                <h3 class="stat-label text-muted">Órdenes pagadas</h3>
-            </div>
-            <div class="stat-value mt-3">{{ report.paid_orders_count }}</div>
-            <p class="stat-desc text-muted mt-1 font-medium text-xs">Finalizadas</p>
-        </article>
-
-        <article class="stat-card panel hover-lift">
-            <div class="stat-header">
-                <div class="stat-icon bg-warning-light text-warning">
-                    <i class="fa-solid fa-clock"></i>
-                </div>
-                <h3 class="stat-label text-muted">Órdenes abiertas</h3>
-            </div>
-            <div class="stat-value mt-3">{{ report.open_orders_count }}</div>
-            <p class="stat-desc text-warning mt-1 font-medium text-xs">Aún activas</p>
+            <div class="stat-value mt-3">{{ report.food_items_sold }}</div>
+            <p class="stat-desc text-warning mt-1 font-medium text-xs">{{ report.items_sold }} productos vendidos</p>
         </article>
 
         <article class="stat-card panel hover-lift">
@@ -110,106 +94,108 @@
                 <div class="stat-icon bg-danger-light text-danger">
                     <i class="fa-solid fa-ban"></i>
                 </div>
-                <h3 class="stat-label text-muted">Canceladas</h3>
+                <h3 class="stat-label text-muted">Cancelado</h3>
             </div>
-            <div class="stat-value mt-3">{{ report.cancelled_orders_count }}</div>
-            <p class="stat-desc text-danger mt-1 font-medium text-xs">Para revisión</p>
-        </article>
-
-        <article class="stat-card panel hover-lift">
-            <div class="stat-header">
-                <div class="stat-icon bg-primary-light text-primary">
-                    <i class="fa-solid fa-cubes"></i>
-                </div>
-                <h3 class="stat-label text-muted">Items vendidos</h3>
-            </div>
-            <div class="stat-value mt-3">{{ report.items_sold }}</div>
-            <p class="stat-desc text-primary mt-1 font-medium text-xs">Unidades cobradas</p>
-        </article>
-
-        <article class="stat-card panel hover-lift">
-            <div class="stat-header">
-                <div class="stat-icon bg-success-light text-success">
-                    <i class="fa-solid fa-money-bill-transfer"></i>
-                </div>
-                <h3 class="stat-label text-muted">Efectivo / Tarjeta</h3>
-            </div>
-            <div class="stat-value mt-3">{{ report.cash_total|money }} / {{ report.card_total|money }}</div>
-            <p class="stat-desc text-success mt-1 font-medium text-xs">Mix de cobro</p>
+            <div class="stat-value mt-3">{{ report.cancelled_report.amount|money }}</div>
+            <p class="stat-desc text-danger mt-1 font-medium text-xs">{{ report.cancelled_report.quantity }} producto{{ '' if report.cancelled_report.quantity == 1 else 's' }}</p>
         </article>
     </section>
 
-    <article class="panel mb-6">
-        <div class="panel-header border-b bg-gray-50">
-            <div>
-                <h2 class="panel-title font-bold">
-                    <i class="fa-solid fa-download mr-2 text-muted"></i> Archivos disponibles
-                </h2>
-                <p class="text-sm text-muted mt-1">Exporta información del período en distintos formatos.</p>
-            </div>
-        </div>
-
-        <div class="panel-body">
-            <div class="action-grid">
-                <a class="button button-secondary" href="{{ url_for('web.exportar_reporte', kind='ventas', desde=start_date|date_input, hasta=end_date|date_input) }}">
-                    <i class="fa-solid fa-file-csv mr-2"></i> Ventas CSV
-                </a>
-                <a class="button button-secondary" href="{{ url_for('web.exportar_reporte', kind='ordenes', desde=start_date|date_input, hasta=end_date|date_input) }}">
-                    <i class="fa-solid fa-file-csv mr-2"></i> Órdenes CSV
-                </a>
-                <a class="button button-secondary" href="{{ url_for('web.exportar_reporte', kind='inventario', desde=start_date|date_input, hasta=end_date|date_input) }}">
-                    <i class="fa-solid fa-file-csv mr-2"></i> Inventario CSV
-                </a>
-                <a class="button button-secondary" href="{{ url_for('web.exportar_reporte', kind='productos', desde=start_date|date_input, hasta=end_date|date_input) }}">
-                    <i class="fa-solid fa-file-csv mr-2"></i> Productos CSV
-                </a>
-            </div>
-        </div>
-    </article>
-
     <section class="filament-content-grid">
         <div class="filament-col">
-
             <article class="panel mb-6">
                 <div class="panel-header border-b bg-gray-50">
                     <div>
                         <h2 class="panel-title font-bold">
-                            <i class="fa-solid fa-ranking-star mr-2 text-muted"></i> Lo que mejor se vende
+                            <i class="fa-solid fa-layer-group mr-2 text-muted"></i> Productos vendidos por categoria
                         </h2>
-                        <p class="text-sm text-muted mt-1">Productos con mayor movimiento en el período.</p>
+                        <p class="text-sm text-muted mt-1">Todos los productos cobrados, agrupados por categoria.</p>
                     </div>
                 </div>
 
                 <div class="panel-body p-0">
-                    {% if report.top_products %}
+                    {% if report.sales_by_category %}
+                        {% for category in report.sales_by_category %}
+                            <div class="report-category-block">
+                                <div class="report-category-head">
+                                    <div>
+                                        <strong>{{ category.category }}</strong>
+                                        <span>{{ category.quantity }} vendido{{ '' if category.quantity == 1 else 's' }}</span>
+                                    </div>
+                                    <strong>{{ category.sales|money }}</strong>
+                                </div>
+                                <div class="table-wrap no-border">
+                                    <table class="filament-table report-sales-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Producto</th>
+                                                <th class="text-center">Cantidad</th>
+                                                <th class="text-right">Ventas</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for product in category.products %}
+                                                <tr class="hover-row">
+                                                    <td class="font-bold text-sm">{{ product.product }}</td>
+                                                    <td class="text-center">{{ product.quantity }}</td>
+                                                    <td class="text-right font-bold">{{ product.sales|money }}</td>
+                                                </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="empty-state p-8 text-center">
+                            <div class="empty-icon bg-gray-light text-muted mx-auto mb-3">
+                                <i class="fa-solid fa-box-open text-2xl"></i>
+                            </div>
+                            <p class="text-sm font-medium text-muted">No hay productos vendidos en este periodo.</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </article>
+        </div>
+
+        <div class="filament-col">
+            <article class="panel mb-6 border-danger">
+                <div class="panel-header border-b bg-danger-light">
+                    <div>
+                        <h2 class="panel-title font-bold text-danger">
+                            <i class="fa-solid fa-ban mr-2"></i> Cancelaciones
+                        </h2>
+                        <p class="text-sm text-danger mt-1">Productos y ordenes anuladas en el periodo.</p>
+                    </div>
+                </div>
+
+                <div class="panel-body p-0">
+                    {% if report.cancelled_report.products %}
                         <div class="table-wrap no-border">
-                            <table class="filament-table">
+                            <table class="filament-table report-cancel-table">
                                 <thead>
                                     <tr>
                                         <th>Producto</th>
-                                        <th>Unidades</th>
-                                        <th>Ventas</th>
-                                        <th>Utilidad</th>
+                                        <th>Categoria</th>
+                                        <th class="text-center">Cant.</th>
+                                        <th class="text-right">Monto</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {% for row in report.top_products %}
+                                    {% for item in report.cancelled_report.products %}
                                         <tr class="hover-row">
-                                            <td class="font-bold text-sm">{{ row.product.nombre }}</td>
-                                            <td>{{ row.quantity }}</td>
-                                            <td class="font-bold">{{ row.sales|money }}</td>
-                                            <td class="font-bold text-success">{{ row.profit|money }}</td>
+                                            <td class="font-bold text-sm">{{ item.product }}</td>
+                                            <td>{{ item.category }}</td>
+                                            <td class="text-center">{{ item.quantity }}</td>
+                                            <td class="text-right font-bold text-danger">{{ item.amount|money }}</td>
                                         </tr>
                                     {% endfor %}
                                 </tbody>
                             </table>
                         </div>
                     {% else %}
-                        <div class="empty-state p-8 text-center">
-                            <div class="empty-icon bg-gray-light text-muted mx-auto mb-3">
-                                <i class="fa-solid fa-box-open text-2xl"></i>
-                            </div>
-                            <p class="text-sm font-medium text-muted">Todavía no hay productos vendidos en este período.</p>
+                        <div class="empty-state p-6 text-center">
+                            <p class="text-sm font-medium text-muted">No hay productos cancelados.</p>
                         </div>
                     {% endif %}
                 </div>
@@ -219,128 +205,30 @@
                 <div class="panel-header border-b bg-gray-50">
                     <div>
                         <h2 class="panel-title font-bold">
-                            <i class="fa-solid fa-receipt mr-2 text-muted"></i> Resumen del período
+                            <i class="fa-solid fa-receipt mr-2 text-muted"></i> Ordenes canceladas
                         </h2>
-                        <p class="text-sm text-muted mt-1">Vista rápida de órdenes registradas en el rango seleccionado.</p>
                     </div>
                 </div>
-
                 <div class="panel-body p-0">
-                    {% if report.orders %}
-                        <div class="table-wrap no-border">
-                            <table class="filament-table">
-                                <thead>
-                                    <tr>
-                                        <th>Orden</th>
-                                        <th>Mesa</th>
-                                        <th>Cliente</th>
-                                        <th>Estado</th>
-                                        <th class="text-right">Total</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for order in report.orders[:12] %}
-                                        <tr class="hover-row">
-                                            <td class="font-bold text-sm">#{{ order.id }}</td>
-                                            <td>{{ order.mesa.etiqueta if order.mesa else '-' }}</td>
-                                            <td>{{ order.nombre_cliente or '-' }}</td>
-                                            <td>
-                                                <span class="badge badge-{{ order.estado|lower }}">{{ order.estado }}</span>
-                                            </td>
-                                            <td class="text-right font-bold">{{ order.total|money }}</td>
-                                        </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    {% else %}
-                        <div class="empty-state p-8 text-center">
-                            <div class="empty-icon bg-gray-light text-muted mx-auto mb-3">
-                                <i class="fa-solid fa-inbox text-2xl"></i>
-                            </div>
-                            <p class="text-sm font-medium text-muted">No hay órdenes en ese rango.</p>
-                        </div>
-                    {% endif %}
-                </div>
-            </article>
-
-        </div>
-
-        <div class="filament-col">
-
-            <article class="panel mb-6">
-                <div class="panel-header border-b bg-gray-50">
-                    <div>
-                        <h2 class="panel-title font-bold">
-                            <i class="fa-solid fa-credit-card mr-2 text-muted"></i> Últimos pagos
-                        </h2>
-                        <p class="text-sm text-muted mt-1">Movimientos de cobro recientes del período filtrado.</p>
-                    </div>
-                </div>
-
-                <div class="panel-body p-0">
-                    {% if report.payments %}
+                    {% if report.cancelled_report.orders %}
                         <ul class="filament-list">
-                            {% for payment in report.payments[:10] %}
+                            {% for order in report.cancelled_report.orders %}
                                 <li class="list-item hover-row">
                                     <div>
-                                        <div class="text-sm font-bold capitalize">{{ payment.metodo }}</div>
-                                        <div class="text-xs text-muted">
-                                            Orden #{{ payment.orden_id }} • <span data-local-datetime="{{ payment.created_at|datetime_iso }}">{{ payment.created_at|datetime_short }}</span>
-                                        </div>
+                                        <div class="text-sm font-bold">Orden #{{ order.id }}</div>
+                                        <div class="text-xs text-muted">{{ order.mesa_etiqueta if order.mesa else 'Para llevar' }} - {{ order.nombre_cliente or 'Sin cliente' }}</div>
                                     </div>
-                                    <div class="text-sm font-bold text-success bg-success-light px-2 py-1 rounded-md">
-                                        {{ payment.monto|money }}
-                                    </div>
+                                    <div class="text-sm font-bold text-danger">{{ order.total|money }}</div>
                                 </li>
                             {% endfor %}
                         </ul>
                     {% else %}
-                        <div class="empty-state p-8 text-center">
-                            <div class="empty-icon bg-gray-light text-muted mx-auto mb-3">
-                                <i class="fa-solid fa-credit-card text-2xl"></i>
-                            </div>
-                            <p class="text-sm font-medium text-muted">No se registran pagos en el período.</p>
+                        <div class="empty-state p-6 text-center">
+                            <p class="text-sm font-medium text-muted">No hay ordenes canceladas.</p>
                         </div>
                     {% endif %}
                 </div>
             </article>
-
-            <article class="panel border-danger">
-                <div class="panel-header border-b bg-danger-light">
-                    <h2 class="panel-title font-bold text-danger flex items-center gap-2">
-                        <i class="fa-solid fa-triangle-exclamation"></i> Productos a reponer
-                    </h2>
-                </div>
-
-                <div class="panel-body p-0">
-                    {% if report.low_stock_products %}
-                        <ul class="filament-list">
-                            {% for product in report.low_stock_products %}
-                                <li class="list-item hover-row bg-red-50">
-                                    <div>
-                                        <div class="text-sm font-bold">{{ product.nombre }}</div>
-                                        <div class="text-xs text-danger">
-                                            {{ product.categoria.nombre if product.categoria else 'Sin categoría' }}
-                                        </div>
-                                    </div>
-                                    <div class="text-sm font-bold text-danger bg-white px-2 py-1 rounded shadow-sm border border-red-100">
-                                        {{ product.stock_actual }}
-                                    </div>
-                                </li>
-                            {% endfor %}
-                        </ul>
-                    {% else %}
-                        <div class="empty-state p-8 text-center">
-                            <div class="empty-icon bg-gray-light text-muted mx-auto mb-3">
-                                <i class="fa-solid fa-boxes-stacked text-2xl"></i>
-                            </div>
-                            <p class="text-sm font-medium text-muted">No hay alertas de stock bajo.</p>
-                        </div>
-                    {% endif %}
-                </div>
-            </article>
-
         </div>
     </section>
 

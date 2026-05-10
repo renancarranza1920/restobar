@@ -177,6 +177,8 @@ class Mesa(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     numero = db.Column(db.Integer, nullable=False)
     nombre_alias = db.Column(db.String(50))
+    sillas = db.Column(db.Integer, default=4, nullable=False)
+    grupo_mesa_id = db.Column(db.Integer, db.ForeignKey("mesas.id"), nullable=True)
     zona_id = db.Column(db.Integer, db.ForeignKey("zonas.id"), nullable=False)
     estado = db.Column(
         db.Enum("disponible", "ocupada", name="mesas_estado"),
@@ -190,7 +192,19 @@ class Mesa(db.Model):
     )
 
     zona = db.relationship("Zona", back_populates="mesas", lazy=True)
+    grupo_base = db.relationship(
+        "Mesa",
+        remote_side=[id],
+        backref=db.backref("mesas_unidas_grupo", lazy=True),
+        lazy=True,
+    )
     ordenes = db.relationship("Orden", back_populates="mesa", lazy=True)
+    orden_mesas = db.relationship(
+        "OrdenMesa",
+        back_populates="mesa",
+        lazy=True,
+        cascade="all, delete-orphan",
+    )
     lista_espera = db.relationship("ListaEspera", back_populates="mesa", lazy=True)
 
     @property
@@ -203,6 +217,8 @@ class Mesa(db.Model):
             "numero": self.numero,
             "nombre_alias": self.nombre_alias,
             "etiqueta": self.etiqueta,
+            "sillas": self.sillas,
+            "grupo_mesa_id": self.grupo_mesa_id,
             "estado": self.estado,
             "limpieza_estado": self.limpieza_estado,
             "zona_id": self.zona_id,
@@ -382,6 +398,12 @@ class Orden(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     mesa = db.relationship("Mesa", back_populates="ordenes", lazy=True)
+    mesas_unidas = db.relationship(
+        "OrdenMesa",
+        back_populates="orden",
+        lazy=True,
+        cascade="all, delete-orphan",
+    )
     sesion_caja = db.relationship("SesionCaja", back_populates="ordenes", lazy=True)
     usuario = db.relationship("Usuario", back_populates="ordenes", lazy=True)
     items = db.relationship(
@@ -428,11 +450,36 @@ class Orden(db.Model):
         activos = self.items_activos
         return bool(activos) and all(item.estado == "entregado" for item in activos)
 
+    @property
+    def mesas_operativas(self):
+        mesas = []
+        seen = set()
+        if self.mesa and self.mesa_id not in seen:
+            mesas.append(self.mesa)
+            seen.add(self.mesa_id)
+        for link in sorted(self.mesas_unidas, key=lambda item: item.mesa.numero if item.mesa else 0):
+            if link.mesa and link.mesa_id not in seen:
+                mesas.append(link.mesa)
+                seen.add(link.mesa_id)
+        return mesas
+
+    @property
+    def mesa_etiqueta(self):
+        mesas = self.mesas_operativas
+        if not mesas:
+            return "Sin mesa"
+        return " + ".join(mesa.etiqueta for mesa in mesas)
+
+    @property
+    def capacidad_sillas(self):
+        return sum(max(int(mesa.sillas or 0), 0) for mesa in self.mesas_operativas)
+
     def to_dict(self):
         return {
             "id": self.id,
             "mesa_id": self.mesa_id,
-            "mesa": self.mesa.etiqueta if self.mesa else None,
+            "mesa": self.mesa_etiqueta if self.mesa else None,
+            "capacidad_sillas": self.capacidad_sillas,
             "nombre_cliente": self.nombre_cliente,
             "total": as_float(self.total),
             "total_pagado": as_float(self.total_pagado),
@@ -441,6 +488,19 @@ class Orden(db.Model):
             "todos_entregados": self.todos_entregados,
             "created_at": self.created_at.isoformat(),
         }
+
+
+class OrdenMesa(db.Model):
+    __tablename__ = "orden_mesas"
+    __table_args__ = (db.UniqueConstraint("orden_id", "mesa_id", name="uq_orden_mesa"),)
+
+    id = db.Column(db.Integer, primary_key=True)
+    orden_id = db.Column(db.Integer, db.ForeignKey("ordenes.id"), nullable=False)
+    mesa_id = db.Column(db.Integer, db.ForeignKey("mesas.id"), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    orden = db.relationship("Orden", back_populates="mesas_unidas", lazy=True)
+    mesa = db.relationship("Mesa", back_populates="orden_mesas", lazy=True)
 
 
 class OrdenItem(db.Model):
@@ -510,9 +570,14 @@ class Pago(db.Model):
         db.Enum("efectivo", "tarjeta", name="pagos_metodo"), nullable=False
     )
     monto = db.Column(db.Numeric(10, 2), nullable=False)
+    propina = db.Column(db.Numeric(10, 2), default=0, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     orden = db.relationship("Orden", back_populates="pagos", lazy=True)
+
+    @property
+    def total_cobrado(self):
+        return as_decimal(self.monto) + as_decimal(self.propina)
 
 
 class MovimientoInventario(db.Model):

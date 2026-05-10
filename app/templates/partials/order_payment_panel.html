@@ -32,7 +32,7 @@
         </div>
     {% endif %}
 {% elif user_can(current_user, 'caja') %}
-    <form class="form-stack" method="post" action="{{ url_for('web.pagar_orden', order_id=order.id) }}" data-payment-form data-payment-label="{{ order.mesa.etiqueta if order.mesa else 'Mesa' }}">
+    <form class="form-stack" method="post" action="{{ url_for('web.pagar_orden', order_id=order.id) }}" data-payment-form data-payment-label="{{ order.mesa_etiqueta if order.mesa else 'Mesa' }}">
         <div class="grid grid-cols-2 gap-3 mb-5">
             <div>
                 <label for="amount" class="block text-xs font-bold text-gray-600 mb-1">Monto a cobrar</label>

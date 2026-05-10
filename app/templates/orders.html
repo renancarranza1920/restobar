@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="filament-dashboard p-4 md:p-6">
+<div class="filament-dashboard orders-dashboard p-4 md:p-6">
 
     <header class="flex flex-col md:flex-row justify-between items-start md:items-end mb-6 gap-4">
         <div>
@@ -47,7 +47,7 @@
                                     <div class="flex justify-between items-start mb-3">
                                         <div>
                                             <strong class="text-lg font-bold text-gray-800">Orden #{{ order.id }}</strong>
-                                            <div class="text-xs font-medium mt-1">{{ order.mesa.etiqueta if order.mesa else 'Para Llevar' }}</div>
+                                            <div class="text-xs font-medium mt-1">{{ order.mesa_etiqueta if order.mesa else 'Para Llevar' }}</div>
                                             <div class="text-xs text-muted" data-local-datetime="{{ order.created_at|datetime_iso }}">{{ order.created_at|datetime_short }}</div>
                                         </div>
                                         <span class="badge badge-{{ order.estado|lower }} shadow-sm">{{ order.estado }}</span>
@@ -61,9 +61,9 @@
                                     </div>
 
                                     <div class="mt-auto">
-                                        <div class="text-xs mb-3 {{ 'text-success' if order.todos_entregados else 'text-warning' }} font-medium">
-                                            <i class="fa-solid {{ 'fa-check-double' if order.todos_entregados else 'fa-bell-concierge' }}"></i>
-                                            {{ 'Todo entregado' if order.todos_entregados else 'Entrega pendiente' }}
+                                        <div class="text-xs mb-3 {{ 'text-success' if order.estado != 'abierta' or order.todos_entregados else 'text-warning' }} font-medium">
+                                            <i class="fa-solid {{ 'fa-check-double' if order.estado != 'abierta' or order.todos_entregados else 'fa-bell-concierge' }}"></i>
+                                            {{ 'Cuenta cerrada' if order.estado != 'abierta' else ('Todo entregado' if order.todos_entregados else 'Entrega pendiente') }}
                                         </div>
                                         <div class="flex gap-2 border-t border-gray-100 pt-3">
                                             <a class="button button-secondary button-small flex-1 text-center" href="{{ url_for('web.detalle_orden', order_id=order.id) }}">Abrir</a>
@@ -91,14 +91,14 @@
 
         <div class="filament-col">
             
-            <article class="panel mb-6 shadow-md border-primary">
+            <article class="panel mb-6 shadow-md border-primary order-create-panel">
                 <div class="panel-header border-b bg-primary-light">
                     <h2 class="panel-title font-bold text-primary"><i class="fa-solid fa-plus-circle mr-2"></i> Nueva Orden</h2>
                 </div>
                 <div class="panel-body p-6">
                     {% if cash_session %}
-                        <form class="form-stack" method="post" action="{{ url_for('web.crear_orden') }}" id="new-order-form">
-                            <div class="mb-4">
+                        <form class="form-stack order-create-form" method="post" action="{{ url_for('web.crear_orden') }}" id="new-order-form">
+                            <div class="mb-4 order-service-block">
                                 <span class="block text-sm font-bold text-gray-800 mb-2">Tipo de servicio</span>
                                 <div class="grid grid-cols-2 gap-2" data-order-service-toggle>
                                     <label class="button button-primary text-center cursor-pointer" data-service-option>
@@ -114,25 +114,71 @@
 
                             <input type="hidden" name="mesa_id_llevar" id="mesa_id_llevar" value="">
 
-                            <div class="mb-4" id="mesa_id_wrap">
-                                <label for="mesa_id" class="block text-sm font-bold text-gray-800 mb-2">Mesa</label>
-                                <select id="mesa_id" name="mesa_id" class="w-full rounded-md shadow-sm border-gray-200 p-2" required>
-                                    {% for mesa in available_tables %}
-                                        {% set table_orders = active_orders.get(mesa.id, []) if active_orders else [] %}
-                                        <option value="{{ mesa.id }}" data-active-order-count="{{ table_orders|length }}" data-table-label="{{ mesa.etiqueta }}">
-                                            {{ mesa.etiqueta }} | {{ mesa.zona.nombre if mesa.zona else 'Sin zona' }}{% if table_orders %} | ocupada, {{ table_orders|length }} cuenta{{ '' if table_orders|length == 1 else 's' }} activa{{ '' if table_orders|length == 1 else 's' }}{% endif %}
-                                        </option>
-                                    {% endfor %}
-                                </select>
-                                <p class="text-xs text-muted mt-2">Puedes abrir otra cuenta en una mesa ocupada si llega otro cliente o grupo.</p>
+                            <div class="mb-4 order-table-block" id="mesa_id_wrap">
+                                <span class="block text-sm font-bold text-gray-800 mb-2">Mesa</span>
+                                {% if available_tables %}
+                                    <div class="order-table-tools">
+                                        <label class="order-table-search">
+                                            <i class="fa-solid fa-magnifying-glass"></i>
+                                            <input type="search" data-table-search placeholder="Buscar mesa o zona" autocomplete="off">
+                                        </label>
+                                        <div class="order-zone-tabs" data-zone-filter-list>
+                                            <button class="order-zone-tab is-active" type="button" data-zone-filter="">Todas</button>
+                                            {% for zone_name in order_table_zones %}
+                                                <button class="order-zone-tab" type="button" data-zone-filter="{{ zone_name|lower }}">{{ zone_name }}</button>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                    <div class="order-table-grid" data-table-choice-list>
+                                        {% for mesa in available_tables %}
+                                            {% set table_orders = active_orders.get(mesa.id, []) if active_orders else [] %}
+                                            {% set zone_name = mesa.zona.nombre if mesa.zona else 'Sin zona' %}
+                                            <label
+                                                class="order-table-choice {{ 'is-busy' if table_orders else 'is-free' }}"
+                                                data-table-choice
+                                                data-zone="{{ zone_name|lower }}"
+                                                data-search="{{ mesa.group_label|lower }} {{ mesa.group_short_label|lower }} {{ zone_name|lower }}"
+                                            >
+                                                <input
+                                                    type="radio"
+                                                    name="mesa_id"
+                                                    value="{{ mesa.id }}"
+                                                    data-table-radio
+                                                    data-active-order-count="{{ table_orders|length }}"
+                                                    data-table-label="{{ mesa.group_label }}"
+                                                    {% if loop.first %}checked{% endif %}
+                                                    required
+                                                >
+                                                <span class="order-table-number">{{ mesa.group_short_label }}</span>
+                                                <span class="order-table-zone">{{ zone_name }}</span>
+                                                {% if mesa.group_is_joined %}
+                                                    <span class="order-table-joined"><i class="fa-solid fa-link"></i></span>
+                                                {% endif %}
+                                                <span class="order-table-choice-badges">
+                                                    {% if table_orders %}
+                                                        <span class="order-table-chip chip-warning">{{ table_orders|length }}</span>
+                                                    {% else %}
+                                                        <span class="order-table-chip chip-success">Libre</span>
+                                                    {% endif %}
+                                                </span>
+                                            </label>
+                                        {% endfor %}
+                                    </div>
+                                    <div class="order-table-empty" data-table-empty hidden>Sin mesas para ese filtro.</div>
+                                {% else %}
+                                    <div class="inline-alert inline-alert-warning">
+                                        <i class="fa-solid fa-circle-exclamation"></i>
+                                        <span>No hay mesas limpias ahora para comer en local.</span>
+                                    </div>
+                                {% endif %}
                             </div>
 
-                            <div class="mb-5">
+                            <div class="mb-5 order-customer-block">
                                 <label for="nombre_cliente" class="block text-sm font-bold text-gray-800 mb-2">Cliente o referencia</label>
                                 <input id="nombre_cliente" name="nombre_cliente" class="w-full rounded-md shadow-sm border-gray-200 p-2" placeholder="Opcional">
                             </div>
 
-                            <button class="button button-primary button-full hover-lift shadow-sm" type="submit">
+                            <button class="button button-primary button-full hover-lift shadow-sm order-submit-button" type="submit">
                                 Crear orden
                             </button>
                         </form>
@@ -155,10 +201,10 @@
                     </div>
                     <div class="panel-body p-4 flex flex-col gap-3">
                         <a class="button button-secondary button-full justify-start" href="{{ url_for('web.exportar_reporte', kind='ordenes') }}">
-                            <i class="fa-solid fa-file-excel w-5"></i> Exportar órdenes
+                            <i class="fa-solid fa-file-pdf w-5"></i> Reporte PDF
                         </a>
                         <a class="button button-ghost button-full justify-start border-gray-200" href="{{ url_for('web.reportes') }}">
-                            <i class="fa-solid fa-chart-line w-5"></i> Abrir reportes
+                            <i class="fa-solid fa-chart-line w-5"></i> Abrir reporte
                         </a>
                     </div>
                 </article>
@@ -181,16 +227,100 @@
             const serviceRadios = form.querySelectorAll("[data-service-radio]");
             const serviceOptions = form.querySelectorAll("[data-service-option]");
             const mesaWrap = document.getElementById("mesa_id_wrap");
-            const mesaSelect = document.getElementById("mesa_id");
+            const tableRadios = Array.from(form.querySelectorAll("[data-table-radio]"));
+            const tableChoices = Array.from(form.querySelectorAll("[data-table-choice]"));
+            const tableSearch = form.querySelector("[data-table-search]");
+            const zoneButtons = Array.from(form.querySelectorAll("[data-zone-filter]"));
+            const tableEmpty = form.querySelector("[data-table-empty]");
+            const submitButton = form.querySelector("button[type='submit']");
             const takeoutMesaInput = document.getElementById("mesa_id_llevar");
             const customerInput = document.getElementById("nombre_cliente");
             const takeoutTableId = "999";
+            let activeZone = "";
+
+            function selectedTableRadio() {
+                return tableRadios.find((radio) => radio.checked && !radio.disabled) || null;
+            }
+
+            function syncTableChoiceState() {
+                tableChoices.forEach((choice) => {
+                    const radio = choice.querySelector("[data-table-radio]");
+                    choice.classList.toggle("is-selected", !!radio?.checked && !radio.disabled);
+                    choice.classList.toggle("is-disabled", !!radio?.disabled);
+                });
+            }
+
+            function takeoutIsSelected() {
+                return form.querySelector("[data-service-radio][value='takeout']")?.checked;
+            }
+
+            function normalizeText(value) {
+                return String(value || "")
+                    .toLowerCase()
+                    .normalize("NFD")
+                    .replace(/[\u0300-\u036f]/g, "")
+                    .trim();
+            }
+
+            function syncRadioRequirements() {
+                const takeoutSelected = takeoutIsSelected();
+                tableRadios.forEach((radio) => {
+                    radio.required = false;
+                });
+                if (takeoutSelected) {
+                    return;
+                }
+                const firstEnabled = tableRadios.find((radio) => !radio.disabled);
+                if (firstEnabled) {
+                    firstEnabled.required = true;
+                }
+            }
+
+            function applyTableFilters() {
+                const takeoutSelected = takeoutIsSelected();
+                const query = normalizeText(tableSearch?.value || "");
+                const zone = normalizeText(activeZone);
+                let firstVisibleRadio = null;
+                let selectedStillVisible = false;
+
+                tableChoices.forEach((choice) => {
+                    const radio = choice.querySelector("[data-table-radio]");
+                    const matchesZone = !zone || normalizeText(choice.dataset.zone) === zone;
+                    const matchesQuery = !query || normalizeText(choice.dataset.search).includes(query);
+                    const visible = matchesZone && matchesQuery;
+
+                    choice.hidden = !visible;
+                    if (radio) {
+                        radio.disabled = takeoutSelected || !visible;
+                        if (visible && !firstVisibleRadio) {
+                            firstVisibleRadio = radio;
+                        }
+                        if (visible && radio.checked) {
+                            selectedStillVisible = true;
+                        }
+                    }
+                });
+
+                if (!takeoutSelected && !selectedStillVisible && firstVisibleRadio) {
+                    firstVisibleRadio.checked = true;
+                }
+                if (tableEmpty) {
+                    tableEmpty.hidden = !!firstVisibleRadio || takeoutSelected;
+                }
+                if (submitButton) {
+                    submitButton.disabled = !takeoutSelected && !firstVisibleRadio;
+                }
+
+                syncRadioRequirements();
+                syncMultipleAccountWarning();
+                syncTableChoiceState();
+            }
 
             function syncMultipleAccountWarning() {
-                const takeoutSelected = form.querySelector("[data-service-radio][value='takeout']")?.checked;
-                const selectedOption = mesaSelect?.selectedOptions?.[0];
-                const activeOrderCount = Number.parseInt(selectedOption?.dataset.activeOrderCount || "0", 10);
-                const tableLabel = selectedOption?.dataset.tableLabel || "esta mesa";
+                const takeoutSelected = takeoutIsSelected();
+                const selectedRadio = selectedTableRadio();
+                const activeOrderCount = Number.parseInt(selectedRadio?.dataset.activeOrderCount || "0", 10);
+                const tableLabel = selectedRadio?.dataset.tableLabel || "esta mesa";
 
                 if (!takeoutSelected && activeOrderCount > 0) {
                     const plural = activeOrderCount === 1 ? "" : "s";
@@ -207,15 +337,10 @@
             }
 
             function syncOrderMode() {
-                const takeoutSelected = form.querySelector("[data-service-radio][value='takeout']")?.checked;
+                const takeoutSelected = takeoutIsSelected();
 
                 if (mesaWrap) {
                     mesaWrap.hidden = !!takeoutSelected;
-                }
-
-                if (mesaSelect) {
-                    mesaSelect.required = !takeoutSelected;
-                    mesaSelect.disabled = !!takeoutSelected;
                 }
 
                 if (customerInput) {
@@ -235,13 +360,28 @@
                     option.classList.toggle("border-gray-200", !active);
                 });
 
-                syncMultipleAccountWarning();
+                applyTableFilters();
             }
 
             serviceRadios.forEach((radio) => {
                 radio.addEventListener("change", syncOrderMode);
             });
-            mesaSelect?.addEventListener("change", syncMultipleAccountWarning);
+            tableRadios.forEach((radio) => {
+                radio.addEventListener("change", () => {
+                    syncMultipleAccountWarning();
+                    syncTableChoiceState();
+                });
+            });
+            tableSearch?.addEventListener("input", applyTableFilters);
+            zoneButtons.forEach((button) => {
+                button.addEventListener("click", () => {
+                    activeZone = button.dataset.zoneFilter || "";
+                    zoneButtons.forEach((item) => {
+                        item.classList.toggle("is-active", item === button);
+                    });
+                    applyTableFilters();
+                });
+            });
 
             syncOrderMode();
         })();

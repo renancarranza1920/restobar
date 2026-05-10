@@ -110,7 +110,7 @@
                                         <tr class="hover-row">
                                             <td class="font-bold text-sm">#{{ order.id }}</td>
                                             <td>
-                                                <div class="text-sm font-medium">{{ order.mesa.etiqueta if order.mesa else 'Para llevar' }}</div>
+                                                <div class="text-sm font-medium">{{ order.mesa_etiqueta if order.mesa else 'Para llevar' }}</div>
                                                 <div class="text-xs text-muted">{{ order.nombre_cliente or 'Sin nombre' }}</div>
                                             </td>
                                             <td>
@@ -182,7 +182,12 @@
                                         <div class="text-sm font-bold capitalize">{{ payment.metodo }}</div>
                                         <div class="text-xs text-muted">Orden #{{ payment.orden_id }} • <span data-local-datetime="{{ payment.created_at|datetime_iso }}">{{ payment.created_at|datetime_short }}</span></div>
                                     </div>
-                                    <div class="text-sm font-bold text-success bg-success-light px-2 py-1 rounded-md">+{{ payment.monto|money }}</div>
+                                    <div class="text-right">
+                                        <div class="text-sm font-bold text-success bg-success-light px-2 py-1 rounded-md">+{{ payment.total_cobrado|money }}</div>
+                                        {% if payment.propina and payment.propina > 0 %}
+                                            <div class="text-xs text-muted mt-1">Propina {{ payment.propina|money }}</div>
+                                        {% endif %}
+                                    </div>
                                 </li>
                             {% endfor %}
                         </ul>

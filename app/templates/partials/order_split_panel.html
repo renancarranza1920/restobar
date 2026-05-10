@@ -31,13 +31,15 @@
                     <div class="split-launch-head">
                         <div class="split-launch-copy">
                             <strong class="split-launch-title">Cobro normal activo</strong>
-                            <p class="text-sm text-muted mt-2">Cuando una misma mesa quiera pagar separado, crea cuentas y reparte cada producto con un toque.</p>
+                            <p class="text-sm text-muted mt-2">Cuando una misma mesa quiera pagar separado, crea hasta {{ split_capacity }} cuenta{{ '' if split_capacity == 1 else 's' }} segun sus sillas.</p>
                         </div>
 
-                        {% if order.estado == 'abierta' %}
+                        {% if order.estado == 'abierta' and split_capacity >= 2 %}
                             <a class="button button-primary shadow-sm hover-lift" href="{{ url_for('web.detalle_orden', order_id=order.id, split=1, personas=split_people_count) }}" data-preserve-scroll>
                                 <i class="fa-solid fa-user-group mr-2"></i> Crear cuentas
                             </a>
+                        {% elif split_capacity < 2 %}
+                            <span class="badge bg-white shadow-sm border border-gray-200 text-muted">Faltan sillas</span>
                         {% else %}
                             <span class="badge bg-white shadow-sm border border-gray-200 text-muted">Solo en orden abierta</span>
                         {% endif %}
@@ -50,12 +52,17 @@
                     </div>
                 {% endif %}
 
+                {% if split_capacity < 2 %}
+                    <div class="inline-alert inline-alert-warning mb-4">
+                        <i class="fa-solid fa-chair mr-2"></i> Esta mesa necesita al menos 2 sillas para dividir la cuenta.
+                    </div>
+                {% else %}
                 <form method="post" action="{{ url_for('web.dividir_orden', order_id=order.id) }}" data-split-form data-split-workspace data-confirm-title="Guardar cuentas separadas" data-confirm-message="Se guardara el reparto actual para cobrar por cliente.">
                     <div class="split-command-bar">
                         <div>
                             <label for="people_count" class="block text-xs font-bold text-muted uppercase tracking-wide mb-1">Cuentas</label>
                             <select id="people_count" name="people_count" class="rounded shadow-sm border-gray-300 p-2" data-split-selector data-order-url="{{ url_for('web.detalle_orden', order_id=order.id) }}" {% if division_locked %}disabled{% endif %}>
-                                {% for count in range(2, 11) %}
+                                {% for count in range(2, split_capacity + 1) %}
                                     <option value="{{ count }}" {% if split_people_count == count %}selected{% endif %}>{{ count }} cuentas</option>
                                 {% endfor %}
                             </select>
@@ -70,8 +77,8 @@
                             <strong data-split-remaining-total>{{ order.total|money }}</strong>
                         </div>
                         <div class="split-command-metric">
-                            <span>Estado</span>
-                            <strong data-split-status>Sin completar</strong>
+                            <span>Limite por sillas</span>
+                            <strong data-split-status>{{ split_capacity }} max.</strong>
                         </div>
                     </div>
 
@@ -161,6 +168,7 @@
                 <div data-order-division-cards>
                     {% include "partials/order_division_cards.html" %}
                 </div>
+                {% endif %}
             {% endif %}
         </div>
     </article>

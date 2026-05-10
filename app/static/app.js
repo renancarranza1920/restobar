@@ -12,6 +12,11 @@
     const paymentModal = document.querySelector("[data-payment-modal]");
     const paymentTitle = paymentModal?.querySelector("[data-payment-title]");
     const paymentAmountNode = paymentModal?.querySelector("[data-payment-amount]");
+    const paymentTipNode = paymentModal?.querySelector("[data-payment-tip]");
+    const paymentTotalNode = paymentModal?.querySelector("[data-payment-total]");
+    const paymentTipButtons = paymentModal
+        ? paymentModal.querySelectorAll("[data-payment-tip-button]")
+        : [];
     const paymentReceivedWrap = paymentModal?.querySelector("[data-payment-received-wrap]");
     const paymentReceivedInput = paymentModal?.querySelector("[data-payment-received]");
     const paymentChangeBox = paymentModal?.querySelector("[data-payment-change-box]");
@@ -30,6 +35,9 @@
     let pendingConfirmAction = null;
     let pendingPaymentForm = null;
     let pendingPaymentAmount = 0;
+    let pendingPaymentTipPercent = 0;
+    let pendingPaymentTip = 0;
+    let pendingPaymentTotal = 0;
     let pendingPaymentIsCash = true;
 
     if ("scrollRestoration" in window.history) {
@@ -340,6 +348,10 @@
         return (form.querySelector("[name='method']")?.value || "efectivo").toLowerCase();
     }
 
+    function paymentTipForPercent(amount, percent) {
+        return Math.round((amount * percent + Number.EPSILON) * 100) / 10000;
+    }
+
     function setHiddenFormValue(form, name, value) {
         let input = form.querySelector(`input[name="${name}"]`);
         if (!input) {
@@ -354,8 +366,10 @@
     function writePaymentTenderFields(form) {
         const received = pendingPaymentIsCash
             ? parsePaymentValue(paymentReceivedInput?.value)
-            : pendingPaymentAmount;
-        const change = pendingPaymentIsCash ? Math.max(received - pendingPaymentAmount, 0) : 0;
+            : pendingPaymentTotal;
+        const change = pendingPaymentIsCash ? Math.max(received - pendingPaymentTotal, 0) : 0;
+        setHiddenFormValue(form, "tip_percent", String(pendingPaymentTipPercent));
+        setHiddenFormValue(form, "tip_amount", pendingPaymentTip.toFixed(2));
         setHiddenFormValue(form, "tendered_amount", received.toFixed(2));
         setHiddenFormValue(form, "change_amount", change.toFixed(2));
     }
@@ -385,15 +399,15 @@
 
         if (!pendingPaymentIsCash) {
             paymentChangeNode.textContent = formatMoney(0);
-            paymentMessage.textContent = "Confirma que el cobro con tarjeta fue aprobado.";
+            paymentMessage.textContent = `Confirma que el cobro con tarjeta por ${formatMoney(pendingPaymentTotal)} fue aprobado.`;
             paymentAccept.disabled = false;
             paymentChangeBox?.classList.remove("is-warning");
             return;
         }
 
         const received = parsePaymentValue(paymentReceivedInput.value);
-        const change = received - pendingPaymentAmount;
-        const hasEnoughCash = received >= pendingPaymentAmount;
+        const change = received - pendingPaymentTotal;
+        const hasEnoughCash = received >= pendingPaymentTotal;
         paymentChangeNode.textContent = formatMoney(Math.max(change, 0));
         paymentMessage.textContent = hasEnoughCash
             ? "Entrega el cambio indicado antes de cerrar el pago."
@@ -402,9 +416,38 @@
         paymentChangeBox?.classList.toggle("is-warning", !hasEnoughCash);
     }
 
+    function syncPaymentTip() {
+        pendingPaymentTip = paymentTipForPercent(pendingPaymentAmount, pendingPaymentTipPercent);
+        pendingPaymentTotal = Math.round((pendingPaymentAmount + pendingPaymentTip + Number.EPSILON) * 100) / 100;
+
+        if (paymentTipNode) {
+            paymentTipNode.textContent = formatMoney(pendingPaymentTip);
+        }
+        if (paymentTotalNode) {
+            paymentTotalNode.textContent = formatMoney(pendingPaymentTotal);
+        }
+        paymentTipButtons.forEach((button) => {
+            const percent = Number.parseInt(button.getAttribute("data-payment-tip-button") || "0", 10);
+            button.classList.toggle("is-active", percent === pendingPaymentTipPercent);
+            button.setAttribute("aria-pressed", percent === pendingPaymentTipPercent ? "true" : "false");
+        });
+
+        if (pendingPaymentIsCash && paymentReceivedInput) {
+            const received = parsePaymentValue(paymentReceivedInput.value);
+            if (!received || received < pendingPaymentTotal) {
+                paymentReceivedInput.value = pendingPaymentTotal.toFixed(2);
+            }
+        }
+
+        updatePaymentChange();
+    }
+
     function closePaymentModal() {
         pendingPaymentForm = null;
         pendingPaymentAmount = 0;
+        pendingPaymentTipPercent = 0;
+        pendingPaymentTip = 0;
+        pendingPaymentTotal = 0;
         pendingPaymentIsCash = true;
         if (!paymentModal) {
             return;
@@ -417,6 +460,9 @@
     function openPaymentModal(form) {
         pendingPaymentForm = form;
         pendingPaymentAmount = paymentAmountForForm(form);
+        pendingPaymentTipPercent = 0;
+        pendingPaymentTip = 0;
+        pendingPaymentTotal = pendingPaymentAmount;
         pendingPaymentIsCash = paymentMethodForForm(form) === "efectivo";
 
         if (!paymentModal || !paymentTitle || !paymentAmountNode || !paymentAccept) {
@@ -427,10 +473,11 @@
         const label = form.getAttribute("data-payment-label") || "Pago";
         paymentTitle.textContent = pendingPaymentIsCash ? `Pago en efectivo - ${label}` : `Pago con tarjeta - ${label}`;
         paymentAmountNode.textContent = formatMoney(pendingPaymentAmount);
+        syncPaymentTip();
 
         if (paymentReceivedWrap && paymentReceivedInput) {
             paymentReceivedWrap.hidden = !pendingPaymentIsCash;
-            paymentReceivedInput.value = pendingPaymentIsCash ? pendingPaymentAmount.toFixed(2) : "";
+            paymentReceivedInput.value = pendingPaymentIsCash ? pendingPaymentTotal.toFixed(2) : "";
         }
         if (paymentChangeLabel) {
             paymentChangeLabel.textContent = pendingPaymentIsCash ? "Cambio a entregar" : "Cambio";
@@ -948,6 +995,13 @@
             paymentAccept.click();
         });
     }
+
+    paymentTipButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+            pendingPaymentTipPercent = Number.parseInt(button.getAttribute("data-payment-tip-button") || "0", 10) || 0;
+            syncPaymentTip();
+        });
+    });
 
     if (paymentAccept) {
         paymentAccept.addEventListener("click", () => {

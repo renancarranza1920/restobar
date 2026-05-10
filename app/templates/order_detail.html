@@ -12,7 +12,7 @@
                 <p class="text-xs font-bold text-primary uppercase tracking-wide">Orden #{{ order.id }}</p>
                 <span class="badge badge-{{ order.estado|lower }} shadow-sm">{{ order.estado }}</span>
             </div>
-            <h1 class="text-3xl font-bold text-gray-800">{{ order.mesa.etiqueta if order.mesa else 'Mesa sin nombre' }}</h1>
+            <h1 class="text-3xl font-bold text-gray-800">{{ order.mesa_etiqueta }}</h1>
             <p class="text-sm text-muted mt-2">
                 <i class="fa-regular fa-user mr-1"></i> {{ order.nombre_cliente or 'Sin referencia' }} |
                 <i class="fa-regular fa-clock mr-1"></i> <span data-local-datetime="{{ order.created_at|datetime_iso }}">{{ order.created_at|datetime_short }}</span> por {{ order.usuario.nombre_completo if order.usuario else 'Sistema' }}
@@ -231,7 +231,12 @@
                                         <div class="text-sm font-bold capitalize text-gray-800">{{ payment.metodo }}</div>
                                         <div class="text-xs text-muted" data-local-datetime="{{ payment.created_at|datetime_iso }}">{{ payment.created_at|datetime_short }}</div>
                                     </div>
-                                    <div class="text-sm font-bold text-success bg-success-light px-2 py-1 rounded">+{{ payment.monto|money }}</div>
+                                    <div class="text-right">
+                                        <div class="text-sm font-bold text-success bg-success-light px-2 py-1 rounded">+{{ payment.total_cobrado|money }}</div>
+                                        {% if payment.propina and payment.propina > 0 %}
+                                            <div class="text-xs text-muted mt-1">Propina {{ payment.propina|money }}</div>
+                                        {% endif %}
+                                    </div>
                                 </li>
                             {% endfor %}
                         </ul>
