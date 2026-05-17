@@ -1,9 +1,10 @@
-import csv
 import re
 from datetime import datetime
-from io import BytesIO, StringIO
+from decimal import Decimal
+from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
+from xml.sax.saxutils import escape
 
 from flask import (
     Blueprint,
@@ -73,23 +74,21 @@ from .services import (
     permission_definitions,
     get_active_cash_session,
     get_active_order_for_mesa,
+    get_active_orders_for_mesa,
     get_categorias,
     get_dashboard_metrics,
     get_dashboard_snapshot,
     get_inventory_products,
     get_low_stock_products,
-    get_mesas_disponibles,
     get_order,
     get_orders_for_listing,
     get_orders_for_range,
-    get_payments_for_range,
     get_pending_kitchen_items,
     get_role,
     get_roles,
     get_producto,
     get_productos,
     get_report_snapshot,
-    get_inventory_for_range,
     get_user,
     get_user_by_nickname,
     get_zona,
@@ -100,7 +99,9 @@ from .services import (
     local_now,
     local_today,
     normalize_item_delivery_states,
+    normalize_seat_count,
     money as normalize_money,
+    order_split_capacity,
     order_can_receive_payment,
     parse_date_value,
     parse_decimal,
@@ -110,6 +111,9 @@ from .services import (
     reset_divisiones_if_possible,
     save_system_preferences,
     save_split_configuration,
+    sync_table_state,
+    ensure_order_table_link,
+    ensure_order_table_links_for_group,
     serialize_kitchen_item,
     session_card_total,
     session_cash_expected,
@@ -121,6 +125,7 @@ from .services import (
     LOW_STOCK_THRESHOLD,
     system_preference_choices,
     theme_choices,
+    grouped_tables_for_mesa,
     user_can,
     valid_timezone_name,
     valid_role_code,
@@ -132,6 +137,7 @@ web_bp = Blueprint("web", __name__)
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+TIP_PERCENT_CHOICES = {0, 5, 10, 15}
 
 
 def database_error_response(exc):
@@ -169,18 +175,30 @@ def ticket_payment_key(order_id, division_id=None):
     return f"division:{division_id}" if division_id else str(order_id)
 
 
-def remember_ticket_payment(order_id, amount, method, division_id=None):
-    received = parse_decimal(request.form.get("tendered_amount"), amount)
-    if method != "efectivo" or received <= 0:
-        received = amount
-    if received < amount:
-        received = amount
+def payment_tip_context(amount):
+    tip_percent = parse_int(request.form.get("tip_percent"), 0)
+    if tip_percent not in TIP_PERCENT_CHOICES:
+        tip_percent = 0
+    tip_amount = normalize_money(normalize_money(amount) * Decimal(tip_percent) / Decimal("100"))
+    return tip_percent, tip_amount
 
-    change = received - amount if method == "efectivo" else parse_decimal("0")
+
+def remember_ticket_payment(order_id, amount, method, division_id=None, tip_amount=None):
+    tip_amount = normalize_money(tip_amount)
+    charged_total = normalize_money(amount + tip_amount)
+    received = parse_decimal(request.form.get("tendered_amount"), charged_total)
+    if method != "efectivo" or received <= 0:
+        received = charged_total
+    if received < charged_total:
+        received = charged_total
+
+    change = received - charged_total if method == "efectivo" else parse_decimal("0")
     ticket_payments = dict(session.get("ticket_payments", {}))
     ticket_payments[ticket_payment_key(order_id, division_id)] = {
         "method": method,
         "amount": f"{amount:.2f}",
+        "tip": f"{tip_amount:.2f}",
+        "total_charged": f"{charged_total:.2f}",
         "received": f"{received:.2f}",
         "change": f"{change:.2f}",
     }
@@ -191,14 +209,16 @@ def format_audit_money(value):
     return f"${parse_decimal(value):,.2f}"
 
 
-def payment_cash_context(amount, method):
-    received = parse_decimal(request.form.get("tendered_amount"), amount)
+def payment_cash_context(amount, method, tip_amount=None):
+    tip_amount = normalize_money(tip_amount)
+    charged_total = normalize_money(amount + tip_amount)
+    received = parse_decimal(request.form.get("tendered_amount"), charged_total)
     if method != "efectivo" or received <= 0:
-        received = amount
-    if received < amount:
-        received = amount
+        received = charged_total
+    if received < charged_total:
+        received = charged_total
 
-    change = received - amount if method == "efectivo" else parse_decimal("0")
+    change = received - charged_total if method == "efectivo" else parse_decimal("0")
     return received, change
 
 
@@ -214,12 +234,16 @@ def payment_items_summary(lines, limit=4):
     return f"{', '.join(labels[:limit])} y {remaining} mas"
 
 
-def audit_payment_summary(order, amount, method, received, change, label=None, lines=None):
+def audit_payment_summary(order, amount, method, received, change, label=None, lines=None, tip_amount=None):
     method_label = "efectivo" if method == "efectivo" else "tarjeta"
     target = f"{label} de la orden #{order.id}" if label else f"orden #{order.id}"
-    table_label = order.mesa.etiqueta if order.mesa else "Sin mesa"
+    table_label = order.mesa_etiqueta if order.mesa else "Sin mesa"
+    tip_amount = normalize_money(tip_amount)
+    charged_total = normalize_money(amount + tip_amount)
     summary = (
         f"Se cobro {target} ({table_label}) por {format_audit_money(amount)} "
+        f"con propina de {format_audit_money(tip_amount)}. "
+        f"Total cobrado: {format_audit_money(charged_total)} "
         f"en {method_label}. Recibido: {format_audit_money(received)}. "
         f"Cambio: {format_audit_money(change)}. Total orden: {format_audit_money(order.total)}. "
         f"Saldo pendiente: {format_audit_money(order.saldo_pendiente)}."
@@ -230,13 +254,16 @@ def audit_payment_summary(order, amount, method, received, change, label=None, l
     return summary
 
 
-def audit_payment_details(order, amount, method, received, change, label=None, lines=None):
+def audit_payment_details(order, amount, method, received, change, label=None, lines=None, tip_amount=None):
+    tip_amount = normalize_money(tip_amount)
     return {
         "orden_id": order.id,
-        "mesa": order.mesa.etiqueta if order.mesa else None,
+        "mesa": order.mesa_etiqueta if order.mesa else None,
         "cuenta": label,
         "metodo": method,
         "monto_cobrado": amount,
+        "propina": tip_amount,
+        "total_cobrado": normalize_money(amount + tip_amount),
         "recibido": received,
         "cambio": change,
         "total_orden": order.total,
@@ -262,21 +289,28 @@ def ticket_payment_context(order, total=None, division_id=None):
         stored.get("amount"),
         total if total is not None else (latest_payment.monto if latest_payment else fallback_total),
     )
+    tip = parse_decimal(
+        stored.get("tip"),
+        latest_payment.propina if latest_payment else parse_decimal("0"),
+    )
+    charged_total = parse_decimal(stored.get("total_charged"), normalize_money(amount + tip))
     received = parse_decimal(
         stored.get("received"),
-        fallback_total if division_id is not None else (order.total_pagado if latest_payment else parse_decimal("0")),
+        charged_total,
     )
     change = parse_decimal(stored.get("change"))
 
     return {
         "method": method,
         "amount": amount,
+        "tip": tip,
+        "total_charged": charged_total,
         "received": received,
         "change": change,
     }
 
 
-def ticket_lines_for_order(order):
+def ticket_lines_for_order(order, include_cancelled=True):
     lines = [
         {
             "quantity": item.cantidad,
@@ -286,9 +320,27 @@ def ticket_lines_for_order(order):
             else "Sin categoria",
             "notes": "" if item.requiere_cocina else item.notas,
             "subtotal": item.subtotal,
+            "cancelled": False,
+            "cancel_reason": None,
         }
         for item in order.items_activos
     ]
+    if include_cancelled:
+        lines.extend(
+            {
+                "quantity": -int(item.cantidad or 0),
+                "description": item.producto.nombre if item.producto else "-",
+                "category": item.producto.categoria.nombre
+                if item.producto and item.producto.categoria
+                else "Sin categoria",
+                "notes": None,
+                "subtotal": -item.subtotal,
+                "cancelled": True,
+                "cancel_reason": item.cancel_reason or "Sin motivo registrado",
+            }
+            for item in order.items
+            if item.estado == "cancelado"
+        )
     return sorted(lines, key=ticket_line_sort_key)
 
 
@@ -310,8 +362,13 @@ def ticket_line_sort_key(item):
     return (
         (item.get("category") or "Sin categoria").strip().casefold(),
         (item.get("description") or "").strip().casefold(),
+        bool(item.get("cancelled")),
         item.get("subtotal"),
     )
+
+
+def cancellation_reason_from_form():
+    return (request.form.get("cancel_reason") or "").strip()[:255]
 
 
 def flash_low_stock_for_order(order):
@@ -492,19 +549,6 @@ def extract_product_payload(existing=None):
     return payload, errors
 
 
-def build_csv_response(filename, headers, rows):
-    buffer = StringIO()
-    writer = csv.writer(buffer)
-    writer.writerow(headers)
-    writer.writerows(rows)
-    payload = "\ufeff" + buffer.getvalue()
-    return Response(
-        payload,
-        mimetype="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
-
-
 def build_pdf_response(filename, start_date, end_date, report):
     preferences = get_system_preferences()
     business_name = preferences["business_name"]
@@ -574,46 +618,66 @@ def build_pdf_response(filename, start_date, end_date, report):
         return f"${value:,.2f}"
 
     summary_rows = [
-        ["Ventas totales", money(report["sales_total"])],
-        ["Utilidad estimada", money(report["gross_profit"])],
-        ["Ticket promedio", money(report["average_ticket"])],
-        ["Órdenes pagadas", str(report["paid_orders_count"])],
-        ["Órdenes abiertas", str(report["open_orders_count"])],
-        ["Órdenes canceladas", str(report["cancelled_orders_count"])],
-        ["Items vendidos", str(report["items_sold"])],
-        ["Efectivo / Tarjeta", f"{money(report['cash_total'])} / {money(report['card_total'])}"],
+        ["Ventas de productos", money(report["sales_total"])],
+        ["Propinas", money(report.get("tips_total", 0))],
+        ["Total cobrado", money(report.get("collected_total", report["sales_total"]))],
+        ["Efectivo", money(report["cash_total"])],
+        ["Tarjeta", money(report["card_total"])],
+        ["Productos vendidos", str(report["items_sold"])],
+        ["Platillos vendidos", str(report.get("food_items_sold", 0))],
+        ["Productos cancelados", str(report["cancelled_report"]["quantity"])],
+        ["Monto cancelado", money(report["cancelled_report"]["amount"])],
+        ["Ordenes pagadas", str(report["paid_orders_count"])],
+        ["Ordenes abiertas", str(report["open_orders_count"])],
+        ["Ordenes canceladas", str(report["cancelled_orders_count"])],
     ]
 
-    top_rows = [["Producto", "Unidades", "Ventas", "Utilidad"]]
-    for row in report["top_products"][:10]:
-        top_rows.append(
+    payment_rows = [
+        ["Metodo", "Cobrado"],
+        ["Efectivo", money(report["cash_total"])],
+        ["Tarjeta", money(report["card_total"])],
+        ["Propinas incluidas", money(report.get("tips_total", 0))],
+        ["Total cobrado", money(report.get("collected_total", report["sales_total"]))],
+    ]
+
+    category_rows = [["Categoria / producto", "Cant.", "Ventas"]]
+    for category in report["sales_by_category"]:
+        category_rows.append(
             [
-                row["product"].nombre,
+                Paragraph(f"<b>{escape(category['category'])}</b>", body_style),
+                str(category["quantity"]),
+                money(category["sales"]),
+            ]
+        )
+        for product in category["products"]:
+            category_rows.append(
+                [
+                    Paragraph(f"&nbsp;&nbsp;{escape(product['product'])}", body_style),
+                    str(product["quantity"]),
+                    money(product["sales"]),
+                ]
+            )
+
+    cancelled_rows = [["Producto cancelado", "Categoria", "Motivos", "Cant.", "Monto"]]
+    for row in report["cancelled_report"]["products"]:
+        cancelled_rows.append(
+            [
+                Paragraph(escape(row["product"]), body_style),
+                Paragraph(escape(row["category"]), body_style),
+                Paragraph(escape(row.get("reasons_summary") or "Sin motivo registrado"), small_style),
                 str(row["quantity"]),
-                money(row["sales"]),
-                money(row["profit"]),
+                money(row["amount"]),
             ]
         )
 
-    order_rows = [["Orden", "Mesa", "Cliente", "Estado", "Total"]]
-    for order in report["orders"][:12]:
-        order_rows.append(
+    cancelled_order_rows = [["Orden", "Mesa", "Cliente", "Total"]]
+    for order in report["cancelled_report"]["orders"]:
+        cancelled_order_rows.append(
             [
                 f"#{order.id}",
-                order.mesa.etiqueta if order.mesa else "-",
+                order.mesa_etiqueta if order.mesa else "-",
                 order.nombre_cliente or "-",
-                order.estado.capitalize(),
                 money(order.total),
-            ]
-        )
-
-    stock_rows = [["Producto", "Categoría", "Stock"]]
-    for product in report["low_stock_products"][:10]:
-        stock_rows.append(
-            [
-                product.nombre,
-                product.categoria.nombre if product.categoria else "-",
-                str(product.stock_actual),
             ]
         )
 
@@ -673,7 +737,7 @@ def build_pdf_response(filename, start_date, end_date, report):
 
     story = [
         Paragraph(business_name, title_style),
-        Paragraph("Reporte ejecutivo", title_style),
+        Paragraph("Reporte de cierre", title_style),
         Paragraph(
             f"Período analizado: {start_date.isoformat()} al {end_date.isoformat()}",
             subtitle_style,
@@ -685,40 +749,54 @@ def build_pdf_response(filename, start_date, end_date, report):
         Spacer(1, 12),
         Paragraph("Resumen general", section_style),
         style_summary_table(Table(summary_rows, colWidths=[190, 302])),
+        Spacer(1, 8),
+        Paragraph("Dinero cobrado", section_style),
+        style_data_table(
+            Table(payment_rows, colWidths=[260, 232], repeatRows=1),
+            align_right_cols=[1],
+        ),
     ]
 
-    if len(top_rows) > 1:
+    if len(category_rows) > 1:
         story.extend(
             [
                 Spacer(1, 8),
-                Paragraph("Productos más vendidos", section_style),
+                Paragraph("Productos vendidos por categoria", section_style),
                 style_data_table(
-                    Table(top_rows, colWidths=[220, 72, 95, 95]),
-                    align_right_cols=[1, 2, 3],
+                    Table(category_rows, colWidths=[310, 70, 112], repeatRows=1),
+                    align_right_cols=[1, 2],
                 ),
             ]
         )
 
-    if len(order_rows) > 1:
+    if len(cancelled_rows) > 1:
         story.extend(
             [
                 Spacer(1, 8),
-                Paragraph("Órdenes del período", section_style),
+                Paragraph("Productos cancelados", section_style),
                 style_data_table(
-                    Table(order_rows, colWidths=[52, 82, 170, 78, 90]),
-                    align_right_cols=[4],
+                    Table(cancelled_rows, colWidths=[150, 110, 145, 35, 52], repeatRows=1),
+                    align_right_cols=[3, 4],
                 ),
             ]
         )
-
-    if len(stock_rows) > 1:
+    else:
         story.extend(
             [
                 Spacer(1, 8),
-                Paragraph("Productos con stock bajo", section_style),
+                Paragraph("Productos cancelados", section_style),
+                Paragraph("No se registraron productos cancelados en el periodo.", body_style),
+            ]
+        )
+
+    if len(cancelled_order_rows) > 1:
+        story.extend(
+            [
+                Spacer(1, 8),
+                Paragraph("Ordenes canceladas", section_style),
                 style_data_table(
-                    Table(stock_rows, colWidths=[220, 200, 72]),
-                    align_right_cols=[2],
+                    Table(cancelled_order_rows, colWidths=[55, 110, 240, 87], repeatRows=1),
+                    align_right_cols=[3],
                 ),
             ]
         )
@@ -737,7 +815,7 @@ def build_pdf_response(filename, start_date, end_date, report):
         canvas.drawString(
             doc.leftMargin,
             page_height - 20,
-            f"{business_name.upper()} - REPORTE EJECUTIVO",
+            f"{business_name.upper()} - REPORTE DE CIERRE",
         )
 
         canvas.setFont("Helvetica", 8)
@@ -1610,12 +1688,122 @@ def auditoria():
     return render_template("audit_logs.html", page_title="Auditoria", logs=logs)
 
 
+def table_group_display_label(members):
+    ordered = sorted(members, key=lambda item: (item.numero, item.id))
+    if len(ordered) == 1:
+        return ordered[0].etiqueta
+    return " + ".join(f"Mesa {mesa.numero}" for mesa in ordered)
+
+
+def table_group_short_label(members):
+    ordered = sorted(members, key=lambda item: (item.numero, item.id))
+    return "+".join(str(mesa.numero) for mesa in ordered)
+
+
+def table_group_orders(members, active_orders):
+    orders = []
+    seen = set()
+    for member in members:
+        for order in active_orders.get(member.id, []):
+            if order.id in seen:
+                continue
+            seen.add(order.id)
+            orders.append(order)
+    return orders
+
+
+def table_group_active_orders(mesa):
+    orders = []
+    seen = set()
+    for member in grouped_tables_for_mesa(mesa):
+        for order in get_active_orders_for_mesa(member.id):
+            if order.id in seen:
+                continue
+            seen.add(order.id)
+            orders.append(order)
+    return orders
+
+
+def build_zone_table_groups(tables, active_orders):
+    tables_by_id = {mesa.id: mesa for mesa in tables}
+    groups = {}
+    for mesa in tables:
+        group_id = mesa.grupo_mesa_id or mesa.id
+        if group_id not in tables_by_id:
+            group_id = mesa.id
+        groups.setdefault(group_id, []).append(mesa)
+
+    display_tables = []
+    display_active_orders = {}
+    for group_id, members in groups.items():
+        ordered_members = sorted(members, key=lambda item: (item.numero, item.id))
+        base_mesa = tables_by_id.get(group_id) or ordered_members[0]
+        orders = table_group_orders(ordered_members, active_orders)
+        group_limpieza = (
+            "sucia"
+            if any(member.limpieza_estado == "sucia" for member in ordered_members)
+            else "limpia"
+        )
+        group_estado = "ocupada" if orders else "disponible"
+
+        base_mesa.group_members = ordered_members
+        base_mesa.group_label = table_group_display_label(ordered_members)
+        base_mesa.group_short_label = table_group_short_label(ordered_members)
+        base_mesa.group_sillas = sum(normalize_seat_count(member.sillas, 4) for member in ordered_members)
+        base_mesa.group_limpieza_estado = group_limpieza
+        base_mesa.group_estado = group_estado
+        base_mesa.group_is_joined = len(ordered_members) > 1
+        base_mesa.group_member_count = len(ordered_members)
+        base_mesa.group_detail = (
+            f"{base_mesa.zona.nombre if base_mesa.zona else 'Sin zona'} · "
+            f"{base_mesa.group_sillas} silla{'' if base_mesa.group_sillas == 1 else 's'}"
+        )
+        if base_mesa.group_is_joined:
+            base_mesa.group_detail = f"{base_mesa.group_detail} · {len(ordered_members)} mesas unidas"
+
+        display_tables.append(base_mesa)
+        display_active_orders[base_mesa.id] = orders
+
+    display_tables.sort(
+        key=lambda mesa: (
+            2
+            if display_active_orders.get(mesa.id)
+            else 1
+            if mesa.group_limpieza_estado != "limpia"
+            else 0,
+            mesa.numero,
+            mesa.etiqueta,
+        )
+    )
+    return display_tables, display_active_orders
+
+
+def grouped_tables_for_order_form():
+    zonas, raw_active_orders = grouped_tables()
+    available_tables = []
+    active_orders = {}
+    zone_filters = []
+    for zona in zonas:
+        groups, display_active_orders = build_zone_table_groups(list(zona.mesas), raw_active_orders)
+        active_orders.update(display_active_orders)
+        zone_tables = [mesa for mesa in groups if mesa.group_limpieza_estado == "limpia"]
+        if zone_tables:
+            zone_filters.append(zona.nombre)
+            available_tables.extend(zone_tables)
+    return available_tables, active_orders, zone_filters
+
+
 @web_bp.get("/mesas")
 @feature_required("mesas.view")
 def mesas():
-    zonas, active_orders = grouped_tables()
+    zonas, raw_active_orders = grouped_tables()
+    if normalize_zero_balance_orders(
+        order for table_orders in raw_active_orders.values() for order in table_orders
+    ):
+        zonas, raw_active_orders = grouped_tables()
     waitlist_entries = get_waitlist_entries()
     zone_cards = []
+    active_orders = {}
     table_summary = {
         "total": 0,
         "available": 0,
@@ -1628,36 +1816,26 @@ def mesas():
 
     for zona in zonas:
         tables = list(zona.mesas)
-        ordered_tables = sorted(
-            tables,
-            key=lambda mesa: (
-                2
-                if active_orders.get(mesa.id)
-                else 1
-                if mesa.limpieza_estado != "limpia"
-                else 0,
-                mesa.numero,
-                mesa.etiqueta,
-            ),
-        )
+        ordered_tables, display_active_orders = build_zone_table_groups(tables, raw_active_orders)
+        active_orders.update(display_active_orders)
         available_count = sum(
             1
-            for mesa in tables
-            if not active_orders.get(mesa.id) and mesa.limpieza_estado == "limpia"
+            for mesa in ordered_tables
+            if not display_active_orders.get(mesa.id) and mesa.group_limpieza_estado == "limpia"
         )
-        occupied_count = sum(1 for mesa in tables if active_orders.get(mesa.id))
+        occupied_count = sum(1 for mesa in ordered_tables if display_active_orders.get(mesa.id))
         dirty_count = sum(
             1
-            for mesa in tables
-            if not active_orders.get(mesa.id) and mesa.limpieza_estado == "sucia"
+            for mesa in ordered_tables
+            if not display_active_orders.get(mesa.id) and mesa.group_limpieza_estado == "sucia"
         )
-        active_account_count = sum(len(active_orders.get(mesa.id, [])) for mesa in tables)
+        active_account_count = sum(len(display_active_orders.get(mesa.id, [])) for mesa in ordered_tables)
 
         zone_cards.append(
             {
                 "zona": zona,
                 "tables": ordered_tables,
-                "total": len(tables),
+                "total": len(ordered_tables),
                 "available": available_count,
                 "occupied": occupied_count,
                 "active_accounts": active_account_count,
@@ -1665,13 +1843,29 @@ def mesas():
             }
         )
 
-        table_summary["total"] += len(tables)
+        table_summary["total"] += len(ordered_tables)
         table_summary["available"] += available_count
         table_summary["occupied"] += occupied_count
         table_summary["active_accounts"] += active_account_count
         table_summary["dirty"] += dirty_count
         if available_count:
             table_summary["zones_with_available"] += 1
+
+    joinable_base_tables = []
+    joinable_target_tables = []
+    for zone_card in zone_cards:
+        for mesa in zone_card["tables"]:
+            if mesa.group_limpieza_estado == "limpia":
+                joinable_base_tables.append(mesa)
+    for zona in zonas:
+        for mesa in zona.mesas:
+            if (
+                mesa.limpieza_estado == "limpia"
+                and not raw_active_orders.get(mesa.id)
+                and not mesa.grupo_mesa_id
+                and not mesa.mesas_unidas_grupo
+            ):
+                joinable_target_tables.append(mesa)
 
     return render_template(
         "tables.html",
@@ -1680,9 +1874,34 @@ def mesas():
         zone_cards=zone_cards,
         table_summary=table_summary,
         active_orders=active_orders,
+        joinable_base_tables=joinable_base_tables,
+        joinable_target_tables=joinable_target_tables,
         waitlist_entries=waitlist_entries,
         cash_session=get_active_cash_session(),
     )
+
+
+def normalize_zero_balance_orders(orders):
+    changed = False
+    seen_order_ids = set()
+    for order in orders:
+        if order.id in seen_order_ids:
+            continue
+        seen_order_ids.add(order.id)
+        previous_state = order.estado
+        settle_order(order)
+        if order.estado != previous_state:
+            changed = True
+            audit_event(
+                "cerrar_cuenta_cero",
+                "orden",
+                order.id,
+                f"Orden #{order.id} cerrada automaticamente con saldo cero.",
+            )
+
+    if changed:
+        db.session.commit()
+    return changed
 
 
 @web_bp.post("/lista-espera")
@@ -1784,12 +2003,15 @@ def sentar_lista_espera(entry_id):
         usuario_id=current_user.id,
         nombre_cliente=entry.nombre_cliente,
     )
-    mesa.estado = "ocupada"
+    for table in grouped_tables_for_mesa(mesa):
+        table.estado = "ocupada"
     entry.estado = "sentado"
     entry.mesa_id = mesa.id
     entry.closed_at = datetime.utcnow()
 
     db.session.add(order)
+    db.session.flush()
+    ensure_order_table_links_for_group(order, mesa)
     audit_event(
         "sentar",
         "lista_espera",
@@ -1819,6 +2041,7 @@ def nueva_mesa():
 def crear_mesa():
     numero = parse_int(request.form.get("numero"))
     nombre_alias = (request.form.get("nombre_alias") or "").strip()
+    sillas = normalize_seat_count(request.form.get("sillas"), 4)
     zona_id = parse_int(request.form.get("zona_id"))
     limpieza_estado = request.form.get("limpieza_estado") or "limpia"
 
@@ -1838,6 +2061,7 @@ def crear_mesa():
     mesa = Mesa(
         numero=numero,
         nombre_alias=nombre_alias or None,
+        sillas=sillas,
         zona_id=zona.id,
         limpieza_estado=limpieza_estado,
     )
@@ -1864,6 +2088,23 @@ def editar_mesa(mesa_id):
     )
 
 
+def seat_update_errors(mesa, next_seats):
+    errors = []
+    current_seats = normalize_seat_count(mesa.sillas, 4)
+    if next_seats >= current_seats:
+        return errors
+
+    for order in get_active_orders_for_mesa(mesa.id):
+        if not order.divisiones:
+            continue
+        next_capacity = order_split_capacity(order) - current_seats + next_seats
+        if len(order.divisiones) > next_capacity:
+            errors.append(
+                f"No puedes bajar {mesa.etiqueta} a {next_seats} silla{'' if next_seats == 1 else 's'} porque la orden #{order.id} ya esta dividida en {len(order.divisiones)} cuentas."
+            )
+    return errors
+
+
 @web_bp.post("/mesas/<int:mesa_id>")
 @feature_required("mesas.edit")
 def actualizar_mesa(mesa_id):
@@ -1874,6 +2115,7 @@ def actualizar_mesa(mesa_id):
 
     numero = parse_int(request.form.get("numero"))
     nombre_alias = (request.form.get("nombre_alias") or "").strip()
+    sillas = normalize_seat_count(request.form.get("sillas"), mesa.sillas or 4)
     zona_id = parse_int(request.form.get("zona_id"))
     limpieza_estado = request.form.get("limpieza_estado") or mesa.limpieza_estado
     zona = db.session.get(Zona, zona_id)
@@ -1883,6 +2125,11 @@ def actualizar_mesa(mesa_id):
         return redirect(url_for("web.editar_mesa", mesa_id=mesa.id))
     if limpieza_estado not in {"limpia", "sucia"}:
         flash("El estado de limpieza no es válido.", "error")
+        return redirect(url_for("web.editar_mesa", mesa_id=mesa.id))
+
+    errors = seat_update_errors(mesa, sillas)
+    if errors:
+        flash_form_errors(errors)
         return redirect(url_for("web.editar_mesa", mesa_id=mesa.id))
 
     exists = (
@@ -1896,6 +2143,7 @@ def actualizar_mesa(mesa_id):
 
     mesa.numero = numero
     mesa.nombre_alias = nombre_alias or None
+    mesa.sillas = sillas
     mesa.zona_id = zona.id
     mesa.limpieza_estado = limpieza_estado
     audit_event("actualizar", "mesa", mesa.id, f"Se actualizo {mesa.etiqueta}.")
@@ -1974,6 +2222,41 @@ def limpiar_mesas_masivo():
     return redirect(request.referrer or url_for("web.mesas"))
 
 
+@web_bp.post("/mesas/<int:mesa_id>/separar")
+@feature_required("mesas.edit")
+def separar_mesas(mesa_id):
+    mesa = db.session.get(Mesa, mesa_id)
+    if mesa is None or mesa.id == current_app.config["TAKEOUT_TABLE_ID"]:
+        flash("El grupo de mesas no existe.", "error")
+        return redirect(request.referrer or url_for("web.mesas"))
+
+    group_members = grouped_tables_for_mesa(mesa)
+    if len(group_members) <= 1:
+        flash("Esa mesa no pertenece a un grupo unido.", "warning")
+        return redirect(request.referrer or url_for("web.mesas"))
+
+    active_orders = table_group_active_orders(mesa)
+    if active_orders:
+        flash("No puedes separar mesas con cuentas abiertas. Cierra o cancela las cuentas primero.", "warning")
+        return redirect(request.referrer or url_for("web.mesas"))
+
+    group_label = table_group_display_label(group_members)
+    for member in group_members:
+        member.grupo_mesa_id = None
+        member.estado = "disponible"
+
+    audit_event(
+        "separar_mesas",
+        "mesa",
+        mesa.id,
+        f"Se separo el grupo {group_label}.",
+        {"mesas": [member.id for member in group_members]},
+    )
+    db.session.commit()
+    flash(f"{group_label} quedo separado.", "success")
+    return redirect(request.referrer or url_for("web.mesas"))
+
+
 @web_bp.post("/mesas/<int:mesa_id>/eliminar")
 @feature_required("mesas.delete")
 def eliminar_mesa(mesa_id):
@@ -2002,14 +2285,16 @@ def ordenes():
     status = request.args.get("estado") or None
     filter_date = parse_date_filter(request.args.get("fecha"))
     orders = get_orders_for_listing(status=status, date_value=filter_date)
-    available_tables = get_mesas_disponibles()
-    _, active_orders = grouped_tables()
+    if normalize_zero_balance_orders(orders):
+        orders = get_orders_for_listing(status=status, date_value=filter_date)
+    available_tables, active_orders, order_table_zones = grouped_tables_for_order_form()
     return render_template(
         "orders.html",
         page_title="Ordenes",
         orders=orders,
         available_tables=available_tables,
         active_orders=active_orders,
+        order_table_zones=order_table_zones,
         selected_status=status or "",
         selected_date=filter_date.isoformat(),
         cash_session=get_active_cash_session(),
@@ -2037,11 +2322,12 @@ def crear_orden():
     if is_takeout and not nombre_cliente:
         flash("Para llevar requiere el nombre del cliente.", "error")
         return redirect(request.referrer or url_for("web.ordenes"))
-    if not is_takeout and mesa.limpieza_estado == "sucia":
-        flash("No puedes abrir una orden en una mesa marcada como sucia. Márcala como limpia primero.", "warning")
+    group_members = [] if is_takeout else grouped_tables_for_mesa(mesa)
+    if not is_takeout and any(table.limpieza_estado == "sucia" for table in group_members):
+        flash("No puedes abrir una orden en un grupo con mesas sucias. Márcalas como limpias primero.", "warning")
         return redirect(request.referrer or url_for("web.ordenes"))
 
-    was_occupied = not is_takeout and mesa.estado == "ocupada"
+    was_occupied = not is_takeout and bool(table_group_active_orders(mesa))
     order = Orden(
         mesa_id=mesa.id,
         sesion_caja_id=cash_session.id,
@@ -2049,8 +2335,11 @@ def crear_orden():
         nombre_cliente=nombre_cliente or None,
     )
     if not is_takeout:
-        mesa.estado = "ocupada"
+        for table in group_members:
+            table.estado = "ocupada"
     db.session.add(order)
+    db.session.flush()
+    ensure_order_table_links_for_group(order, mesa)
     audit_event("crear", "orden", None, f"Se abrio una orden en {mesa.etiqueta}.")
     db.session.commit()
 
@@ -2078,8 +2367,13 @@ def detalle_orden(order_id):
     requested_people = parse_int(request.args.get("personas"), 0)
     split_mode = bool(order.divisiones) or bool_from_form(request.args.get("split"))
     division_count = len(order.divisiones)
-    people_count = division_count or requested_people or 2
-    people_count = max(2, min(10, people_count))
+    split_capacity = order_split_capacity(order)
+    people_count = division_count or requested_people or min(2, split_capacity)
+    people_count = max(1, min(split_capacity, people_count))
+    if split_capacity >= 2:
+        people_count = max(2, people_count)
+
+    normalize_zero_balance_orders([order])
 
     can_charge, charge_message = order_can_receive_payment(current_user, order)
     products = get_productos(disponibles_only=True)
@@ -2097,6 +2391,7 @@ def detalle_orden(order_id):
         low_stock_threshold=LOW_STOCK_THRESHOLD,
         split_mode=split_mode,
         split_people_count=people_count,
+        split_capacity=split_capacity,
         split_matrix=build_split_matrix(order, people_count),
         split_labels={
             division.numero_persona: division.etiqueta or ""
@@ -2108,6 +2403,145 @@ def detalle_orden(order_id):
         can_deliver=user_can(current_user, "ordenes"),
         division_locked=any(division.pagada for division in order.divisiones),
     )
+
+
+@web_bp.post("/ordenes/<int:order_id>/mesas/unir")
+@feature_required("mesas.edit")
+def unir_mesa_orden(order_id):
+    order = get_order(order_id)
+    if order is None:
+        flash("La orden no existe.", "error")
+        return redirect(url_for("web.ordenes"))
+    if order.estado != "abierta":
+        flash("Solo puedes unir mesas en una orden abierta.", "error")
+        return redirect(url_for("web.detalle_orden", order_id=order.id))
+    if order.mesa_id == current_app.config["TAKEOUT_TABLE_ID"]:
+        flash("Las ordenes para llevar no se pueden unir a mesas.", "warning")
+        return redirect(url_for("web.detalle_orden", order_id=order.id))
+
+    mesa_id = parse_int(request.form.get("mesa_id"))
+    mesa = db.session.get(Mesa, mesa_id)
+    if mesa is None or mesa.id == current_app.config["TAKEOUT_TABLE_ID"]:
+        flash("Selecciona una mesa valida para unir.", "error")
+        return redirect(url_for("web.detalle_orden", order_id=order.id))
+    if mesa.id in {item.id for item in order.mesas_operativas}:
+        flash("Esa mesa ya esta unida a la orden.", "warning")
+        return redirect(url_for("web.detalle_orden", order_id=order.id))
+    if mesa.limpieza_estado != "limpia":
+        flash("Solo puedes unir mesas limpias.", "warning")
+        return redirect(url_for("web.detalle_orden", order_id=order.id))
+    if get_active_order_for_mesa(mesa.id):
+        flash("Esa mesa ya tiene una cuenta abierta.", "warning")
+        return redirect(url_for("web.detalle_orden", order_id=order.id))
+
+    ensure_order_table_link(order)
+    mesa.grupo_mesa_id = order.mesa.grupo_mesa_id or order.mesa_id
+    ensure_order_table_link(order, mesa)
+    mesa.estado = "ocupada"
+    audit_event(
+        "unir_mesa",
+        "orden",
+        order.id,
+        f"Se unio {mesa.etiqueta} a la orden #{order.id}.",
+        {"mesa_id": mesa.id, "capacidad_sillas": order_split_capacity(order)},
+    )
+    db.session.commit()
+
+    flash(f"{mesa.etiqueta} quedo unida a la orden #{order.id}.", "success")
+    return redirect(url_for("web.detalle_orden", order_id=order.id))
+
+
+@web_bp.post("/mesas/unir")
+@feature_required("mesas.edit")
+def unir_mesas():
+    base_mesa_id = parse_int(request.form.get("base_mesa_id"))
+    mesa_id = parse_int(request.form.get("mesa_id"))
+    base_mesa = db.session.get(Mesa, base_mesa_id)
+    mesa = db.session.get(Mesa, mesa_id)
+
+    if base_mesa is None or base_mesa.id == current_app.config["TAKEOUT_TABLE_ID"]:
+        flash("Selecciona una mesa principal valida.", "error")
+        return redirect(url_for("web.mesas"))
+    if mesa is None or mesa.id == current_app.config["TAKEOUT_TABLE_ID"]:
+        flash("Selecciona una mesa valida para unir.", "error")
+        return redirect(url_for("web.mesas"))
+    if mesa.id == base_mesa.id:
+        flash("Selecciona dos mesas diferentes para unir.", "warning")
+        return redirect(url_for("web.mesas"))
+    if mesa.zona_id != base_mesa.zona_id:
+        flash("Solo puedes unir mesas de la misma zona.", "warning")
+        return redirect(url_for("web.mesas"))
+    if base_mesa.limpieza_estado != "limpia" or mesa.limpieza_estado != "limpia":
+        flash("Solo puedes unir mesas limpias.", "warning")
+        return redirect(url_for("web.mesas"))
+    if get_active_order_for_mesa(mesa.id):
+        flash("Esa mesa ya tiene una cuenta abierta.", "warning")
+        return redirect(url_for("web.mesas"))
+    if mesa.grupo_mesa_id or mesa.mesas_unidas_grupo:
+        flash("Esa mesa ya pertenece a otro grupo.", "warning")
+        return redirect(url_for("web.mesas"))
+
+    base_group_id = base_mesa.grupo_mesa_id or base_mesa.id
+    mesa.grupo_mesa_id = base_group_id
+    active_base_orders = get_active_orders_for_mesa(base_mesa.id)
+    for order in active_base_orders:
+        ensure_order_table_links_for_group(order, base_mesa)
+        mesa.estado = "ocupada"
+    audit_event(
+        "unir_mesa",
+        "mesa",
+        base_group_id,
+        f"Se unio {mesa.etiqueta} al grupo de {base_mesa.etiqueta}.",
+        {"mesa_id": mesa.id, "mesa_base_id": base_mesa.id},
+    )
+    db.session.commit()
+
+    flash(f"{mesa.etiqueta} quedo unida a {base_mesa.etiqueta}.", "success")
+    return redirect(url_for("web.mesas"))
+
+
+@web_bp.post("/ordenes/<int:order_id>/mesas/<int:mesa_id>/quitar")
+@feature_required("mesas.edit")
+def quitar_mesa_orden(order_id, mesa_id):
+    order = get_order(order_id)
+    if order is None:
+        flash("La orden no existe.", "error")
+        return redirect(url_for("web.ordenes"))
+    if order.estado != "abierta":
+        flash("Solo puedes quitar mesas de una orden abierta.", "error")
+        return redirect(url_for("web.detalle_orden", order_id=order.id))
+    if mesa_id == order.mesa_id:
+        flash("La mesa principal de la orden no se puede quitar.", "warning")
+        return redirect(url_for("web.detalle_orden", order_id=order.id))
+
+    link = next((item for item in order.mesas_unidas if item.mesa_id == mesa_id), None)
+    if link is None or link.mesa is None:
+        flash("Esa mesa no esta unida a la orden.", "warning")
+        return redirect(url_for("web.detalle_orden", order_id=order.id))
+
+    remaining_capacity = order_split_capacity(order) - normalize_seat_count(link.mesa.sillas, 4)
+    if order.divisiones and len(order.divisiones) > remaining_capacity:
+        flash("No puedes quitar esa mesa porque la division actual necesita sus sillas.", "error")
+        return redirect(url_for("web.detalle_orden", order_id=order.id))
+
+    mesa_label = link.mesa.etiqueta
+    mesa = link.mesa
+    db.session.delete(link)
+    db.session.flush()
+    if mesa.grupo_mesa_id == (order.mesa.grupo_mesa_id or order.mesa_id):
+        mesa.grupo_mesa_id = None
+    sync_table_state(mesa, excluded_order_id=order.id)
+    audit_event(
+        "quitar_mesa_unida",
+        "orden",
+        order.id,
+        f"Se quito {mesa_label} de la orden #{order.id}.",
+        {"mesa_id": mesa_id, "capacidad_sillas": order_split_capacity(order)},
+    )
+    db.session.commit()
+
+    flash(f"{mesa_label} se quito de la orden #{order.id}.", "success")
+    return redirect(url_for("web.detalle_orden", order_id=order.id))
 
 
 @web_bp.get("/ordenes/<int:order_id>/ticket")
@@ -2339,6 +2773,10 @@ def cancelar_item(item_id):
     if redirect_response:
         return redirect_response
 
+    cancel_reason = cancellation_reason_from_form()
+    if not cancel_reason:
+        flash("Indica el motivo por el que se cancela el producto.", "error")
+        return redirect(request.referrer or url_for("web.detalle_orden", order_id=item.orden_id))
     if item.estado == "cancelado":
         flash("Ese item ya estaba cancelado.", "error")
         return redirect(request.referrer or url_for("web.detalle_orden", order_id=item.orden_id))
@@ -2364,8 +2802,21 @@ def cancelar_item(item_id):
 
     if cancel_quantity >= item.cantidad:
         item.estado = "cancelado"
+        item.cancel_reason = cancel_reason
     else:
         item.cantidad -= cancel_quantity
+        cancelled_item = OrdenItem(
+            orden=item.orden,
+            producto=item.producto,
+            producto_id=item.producto_id,
+            cantidad=cancel_quantity,
+            precio_unitario=item.precio_unitario,
+            costo_unitario=item.costo_unitario,
+            notas=item.notas,
+            estado="cancelado",
+            cancel_reason=cancel_reason,
+        )
+        db.session.add(cancelled_item)
 
     sync_order(item.orden)
     settle_order(item.orden)
@@ -2373,7 +2824,14 @@ def cancelar_item(item_id):
         "cancelar_item",
         "orden_item",
         item.id,
-        f"Se cancelaron {cancel_quantity} de {original_quantity} unidades del item #{item.id}.",
+        f"Se cancelaron {cancel_quantity} de {original_quantity} unidades del item #{item.id}. Motivo: {cancel_reason}.",
+        {
+            "orden_id": item.orden_id,
+            "producto": item.producto.nombre if item.producto else None,
+            "cantidad_cancelada": cancel_quantity,
+            "cantidad_original": original_quantity,
+            "motivo": cancel_reason,
+        },
     )
     db.session.commit()
 
@@ -2476,12 +2934,13 @@ def pagar_division(division_id):
         flash(stock_errors[0], "error")
         return redirect(url_for("web.detalle_orden", order_id=division.orden_id))
 
-    payment = Pago(orden=division.orden, metodo=method, monto=division.total)
+    _tip_percent, tip_amount = payment_tip_context(division.total)
+    payment = Pago(orden=division.orden, metodo=method, monto=division.total, propina=tip_amount)
     division.pagada = True
     db.session.add(payment)
     db.session.flush()
     settle_order(division.orden)
-    received, change = payment_cash_context(division.total, method)
+    received, change = payment_cash_context(division.total, method, tip_amount)
     lines = ticket_lines_for_division(division)
     audit_event(
         "cobrar",
@@ -2495,6 +2954,7 @@ def pagar_division(division_id):
             change,
             label=division.nombre_visible,
             lines=lines,
+            tip_amount=tip_amount,
         ),
         audit_payment_details(
             division.orden,
@@ -2504,10 +2964,17 @@ def pagar_division(division_id):
             change,
             label=division.nombre_visible,
             lines=lines,
+            tip_amount=tip_amount,
         ),
     )
     db.session.commit()
-    remember_ticket_payment(division.orden_id, division.total, method, division_id=division.id)
+    remember_ticket_payment(
+        division.orden_id,
+        division.total,
+        method,
+        division_id=division.id,
+        tip_amount=tip_amount,
+    )
     if division.orden.estado == "pagada":
         flash_low_stock_for_order(division.orden)
 
@@ -2561,21 +3028,22 @@ def pagar_orden(order_id):
         flash("El monto no puede ser mayor que el saldo pendiente.", "error")
         return redirect(url_for("web.detalle_orden", order_id=order.id))
 
-    payment = Pago(orden=order, metodo=method, monto=amount)
+    _tip_percent, tip_amount = payment_tip_context(amount)
+    payment = Pago(orden=order, metodo=method, monto=amount, propina=tip_amount)
     db.session.add(payment)
     db.session.flush()
     settle_order(order)
-    received, change = payment_cash_context(amount, method)
-    lines = ticket_lines_for_order(order)
+    received, change = payment_cash_context(amount, method, tip_amount)
+    lines = ticket_lines_for_order(order, include_cancelled=False)
     audit_event(
         "cobrar",
         "orden",
         order.id,
-        audit_payment_summary(order, amount, method, received, change, lines=lines),
-        audit_payment_details(order, amount, method, received, change, lines=lines),
+        audit_payment_summary(order, amount, method, received, change, lines=lines, tip_amount=tip_amount),
+        audit_payment_details(order, amount, method, received, change, lines=lines, tip_amount=tip_amount),
     )
     db.session.commit()
-    remember_ticket_payment(order.id, amount, method)
+    remember_ticket_payment(order.id, amount, method, tip_amount=tip_amount)
     if order.estado == "pagada":
         flash_low_stock_for_order(order)
 
@@ -2603,12 +3071,26 @@ def cancelar_orden(order_id):
         flash("Solo administracion puede cancelar una orden con items ya entregados.", "error")
         return redirect(url_for("web.detalle_orden", order_id=order.id))
 
+    cancel_reason = cancellation_reason_from_form()
+    if not cancel_reason:
+        flash("Indica el motivo por el que se cancela la orden.", "error")
+        return redirect(url_for("web.detalle_orden", order_id=order.id))
+
     order.estado = "cancelada"
     for item in order.items:
         if item.estado != "cancelado":
             item.estado = "cancelado"
+            item.cancel_reason = cancel_reason
+        elif not item.cancel_reason:
+            item.cancel_reason = cancel_reason
     sync_order(order)
-    audit_event("cancelar", "orden", order.id, f"Orden #{order.id} cancelada.")
+    audit_event(
+        "cancelar",
+        "orden",
+        order.id,
+        f"Orden #{order.id} cancelada. Motivo: {cancel_reason}.",
+        {"motivo": cancel_reason},
+    )
     db.session.commit()
 
     flash(f"La orden #{order.id} fue cancelada.", "success")
@@ -2870,7 +3352,7 @@ def reportes():
     report = get_report_snapshot(start_date, end_date)
     return render_template(
         "reports.html",
-        page_title="Reportes",
+        page_title="Reporte",
         report=report,
         start_date=start_date,
         end_date=end_date,
@@ -2894,100 +3376,13 @@ def exportar_reporte_pdf():
 @feature_required("reportes.export")
 def exportar_reporte(kind):
     start_date, end_date = parse_report_range()
-
-    if kind == "ventas":
-        payments = get_payments_for_range(start_date, end_date)
-        return build_csv_response(
-            f"ventas_{start_date.isoformat()}_{end_date.isoformat()}.csv",
-            ["Fecha", "Orden", "Mesa", "Cliente", "Metodo", "Monto"],
-            [
-                [
-                    local_datetime_label(payment.created_at),
-                    f"#{payment.orden_id}",
-                    payment.orden.mesa.etiqueta
-                    if payment.orden and payment.orden.mesa
-                    else "-",
-                    payment.orden.nombre_cliente if payment.orden else "",
-                    payment.metodo,
-                    f"{payment.monto}",
-                ]
-                for payment in payments
-            ],
+    return redirect(
+        url_for(
+            "web.exportar_reporte_pdf",
+            desde=start_date.isoformat(),
+            hasta=end_date.isoformat(),
         )
-
-    if kind == "productos":
-        products = get_productos()
-        return build_csv_response(
-            "productos_catalogo.csv",
-            [
-                "Producto",
-                "Categoria",
-                "Precio venta unidad",
-                "Costo unitario estimado",
-                "Unidad compra",
-                "Unidades por paquete",
-                "Stock",
-                "Disponible",
-                "Imagen",
-            ],
-            [
-                [
-                    product.nombre,
-                    product.categoria.nombre if product.categoria else "",
-                    f"{product.precio_venta}",
-                    f"{product.precio_costo}",
-                    product.unidad_compra,
-                    product.unidades_por_paquete,
-                    product.stock_actual,
-                    "Si" if product.disponible else "No",
-                    product.imagen_url or "",
-                ]
-                for product in products
-            ],
-        )
-
-    if kind == "inventario":
-        movements = get_inventory_for_range(start_date, end_date)
-        return build_csv_response(
-            f"inventario_{start_date.isoformat()}_{end_date.isoformat()}.csv",
-            ["Fecha", "Producto", "Tipo", "Paquetes", "Unidades", "Precio referencia", "Usuario", "Notas"],
-            [
-                [
-                    local_datetime_label(movement.created_at),
-                    movement.producto.nombre if movement.producto else "",
-                    movement.tipo,
-                    movement.cantidad_paquetes or "",
-                    movement.cantidad_unidades,
-                    f"{movement.precio_unitario or ''}",
-                    movement.usuario.nombre_completo if movement.usuario else "",
-                    movement.notas or "",
-                ]
-                for movement in movements
-            ],
-        )
-
-    if kind == "ordenes":
-        orders = get_orders_for_range(start_date, end_date)
-        return build_csv_response(
-            f"ordenes_{start_date.isoformat()}_{end_date.isoformat()}.csv",
-            ["Orden", "Mesa", "Cliente", "Mesero", "Estado", "Total", "Pagado", "Creada"],
-            [
-                [
-                    f"#{order.id}",
-                    order.mesa.etiqueta if order.mesa else "",
-                    order.nombre_cliente or "",
-                    order.usuario.nombre_completo if order.usuario else "",
-                    order.estado,
-                    f"{order.total}",
-                    f"{order.total_pagado}",
-                    local_datetime_label(order.created_at),
-                ]
-                for order in orders
-            ],
-        )
-
-    flash("Ese reporte no existe.", "error")
-    return redirect(url_for("web.reportes"))
+    )
 
 
 @web_bp.get("/cocina")
@@ -3313,8 +3708,13 @@ def api_orden_estado(order_id):
 
         requested_people = parse_int(request.args.get("personas"), 0)
         division_count = len(order.divisiones)
-        people_count = division_count or requested_people or 2
-        people_count = max(2, min(10, people_count))
+        split_capacity = order_split_capacity(order)
+        people_count = division_count or requested_people or min(2, split_capacity)
+        people_count = max(1, min(split_capacity, people_count))
+        if split_capacity >= 2:
+            people_count = max(2, people_count)
+        normalize_zero_balance_orders([order])
+
         can_charge, charge_message = order_can_receive_payment(current_user, order)
         division_locked = any(division.pagada for division in order.divisiones)
         context = {
@@ -3326,6 +3726,7 @@ def api_orden_estado(order_id):
             "division_locked": division_locked,
             "owner_user": user_can(current_user, "usuarios"),
             "split_people_count": people_count,
+            "split_capacity": split_capacity,
             "split_matrix": build_split_matrix(order, people_count),
             "split_labels": {
                 division.numero_persona: division.etiqueta or ""

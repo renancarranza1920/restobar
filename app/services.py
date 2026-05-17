@@ -22,6 +22,7 @@ from .models import (
     OrdenDivision,
     OrdenDivisionItem,
     OrdenItem,
+    OrdenMesa,
     Pago,
     PreferenciaSistema,
     Producto,
@@ -117,8 +118,8 @@ FEATURE_DEFINITIONS = [
     },
     {
         "key": "reportes",
-        "label": "Reportes",
-        "description": "Consultar y exportar reportes operativos y financieros.",
+        "label": "Reporte",
+        "description": "Consultar y exportar reporte operativo y financiero.",
         "group": "Finanzas",
     },
     {
@@ -164,8 +165,8 @@ PERMISSION_DEFINITIONS = [
     {"key": "cocina.prepare", "label": "Preparar comandas", "description": "Marcar items de cocina como listos/entregados.", "group": "Cocina"},
     {"key": "inventario.view", "label": "Ver inventario", "description": "Consultar stock y movimientos.", "group": "Inventario"},
     {"key": "inventario.create", "label": "Registrar movimientos", "description": "Crear compras, ventas y ajustes.", "group": "Inventario"},
-    {"key": "reportes.view", "label": "Ver reportes", "description": "Consultar reportes operativos y financieros.", "group": "Reportes"},
-    {"key": "reportes.export", "label": "Exportar reportes", "description": "Descargar CSV y PDF.", "group": "Reportes"},
+    {"key": "reportes.view", "label": "Ver reporte", "description": "Consultar reporte operativo y financiero.", "group": "Reporte"},
+    {"key": "reportes.export", "label": "Exportar reporte", "description": "Descargar PDF.", "group": "Reporte"},
     {"key": "usuarios.view", "label": "Ver usuarios", "description": "Consultar cuentas y roles.", "group": "Seguridad"},
     {"key": "usuarios.create", "label": "Crear usuarios", "description": "Registrar cuentas nuevas.", "group": "Seguridad"},
     {"key": "usuarios.edit", "label": "Editar usuarios", "description": "Actualizar datos, roles y estado.", "group": "Seguridad"},
@@ -262,7 +263,7 @@ NAV_ITEMS = [
     },
     {
         "feature": "reportes",
-        "label": "Reportes",
+        "label": "Reporte",
         "icon": "fa-chart-line",
         "endpoint": "web.reportes",
         "active_endpoints": {"web.reportes", "web.exportar_reporte"},
@@ -323,6 +324,10 @@ def money(value):
     return Decimal(str(value)).quantize(CENTAVOS, rounding=ROUND_HALF_UP)
 
 
+def payment_collected_total(payment):
+    return money(as_decimal(payment.monto) + as_decimal(getattr(payment, "propina", ZERO)))
+
+
 def parse_decimal(value, default=ZERO):
     if value is None:
         return default
@@ -342,6 +347,15 @@ def parse_int(value, default=0):
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def normalize_seat_count(value, default=4):
+    seats = parse_int(value, default)
+    if seats < 1:
+        return 1
+    if seats > 60:
+        return 60
+    return seats
 
 
 def parse_date_value(raw_value, fallback):
@@ -925,6 +939,41 @@ def bootstrap_waitlist_schema():
         ListaEspera.__table__.create(db.engine)
 
 
+def bootstrap_table_layout_schema():
+    inspector = inspect(db.engine)
+    if not inspector.has_table("mesas"):
+        return
+
+    table_columns = {column["name"] for column in inspector.get_columns("mesas")}
+    if "sillas" not in table_columns:
+        db.session.execute(
+            text("ALTER TABLE mesas ADD COLUMN sillas INT NOT NULL DEFAULT 4")
+        )
+        db.session.commit()
+    if "grupo_mesa_id" not in table_columns:
+        db.session.execute(text("ALTER TABLE mesas ADD COLUMN grupo_mesa_id INT NULL"))
+        db.session.commit()
+
+    if inspector.has_table("ordenes") and not inspector.has_table("orden_mesas"):
+        OrdenMesa.__table__.create(db.engine)
+
+    if inspector.has_table("pagos"):
+        payment_columns = {column["name"] for column in inspector.get_columns("pagos")}
+        if "propina" not in payment_columns:
+            db.session.execute(
+                text("ALTER TABLE pagos ADD COLUMN propina DECIMAL(10,2) NOT NULL DEFAULT 0")
+            )
+            db.session.commit()
+
+    if inspector.has_table("orden_items"):
+        order_item_columns = {column["name"] for column in inspector.get_columns("orden_items")}
+        if "cancel_reason" not in order_item_columns:
+            db.session.execute(
+                text("ALTER TABLE orden_items ADD COLUMN cancel_reason VARCHAR(255) NULL")
+            )
+            db.session.commit()
+
+
 def audit_event(action, entity, entity_id=None, summary=None, details=None, commit=False):
     try:
         user_id = current_user.id if getattr(current_user, "is_authenticated", False) else None
@@ -988,6 +1037,7 @@ def bootstrap_takeout_table():
             id=table_id,
             numero=table_number,
             nombre_alias=table_alias,
+            sillas=1,
             zona_id=zone.id,
             estado="disponible",
             limpieza_estado="limpia",
@@ -1110,6 +1160,7 @@ def get_active_order_for_mesa(mesa_id):
     return (
         Orden.query.options(
             joinedload(Orden.mesa).joinedload(Mesa.zona),
+            selectinload(Orden.mesas_unidas).joinedload(OrdenMesa.mesa).joinedload(Mesa.zona),
             joinedload(Orden.usuario),
             selectinload(Orden.items).joinedload(OrdenItem.producto).joinedload(
                 Producto.categoria
@@ -1120,9 +1171,26 @@ def get_active_order_for_mesa(mesa_id):
             .joinedload(OrdenDivisionItem.orden_item)
             .joinedload(OrdenItem.producto),
         )
-        .filter_by(mesa_id=mesa_id, estado="abierta")
+        .outerjoin(OrdenMesa, OrdenMesa.orden_id == Orden.id)
+        .filter(Orden.estado == "abierta")
+        .filter(db.or_(Orden.mesa_id == mesa_id, OrdenMesa.mesa_id == mesa_id))
         .order_by(Orden.created_at.desc())
         .first()
+    )
+
+
+def get_active_orders_for_mesa(mesa_id):
+    return (
+        Orden.query.options(
+            joinedload(Orden.mesa),
+            selectinload(Orden.mesas_unidas).joinedload(OrdenMesa.mesa),
+            selectinload(Orden.divisiones),
+        )
+        .outerjoin(OrdenMesa, OrdenMesa.orden_id == Orden.id)
+        .filter(Orden.estado == "abierta")
+        .filter(db.or_(Orden.mesa_id == mesa_id, OrdenMesa.mesa_id == mesa_id))
+        .order_by(Orden.created_at.desc())
+        .all()
     )
 
 
@@ -1130,7 +1198,11 @@ def mesa_has_other_active_orders(mesa_id, excluded_order_id=None):
     if not mesa_id:
         return False
 
-    query = Orden.query.filter_by(mesa_id=mesa_id, estado="abierta")
+    query = (
+        Orden.query.outerjoin(OrdenMesa, OrdenMesa.orden_id == Orden.id)
+        .filter(Orden.estado == "abierta")
+        .filter(db.or_(Orden.mesa_id == mesa_id, OrdenMesa.mesa_id == mesa_id))
+    )
     if excluded_order_id:
         query = query.filter(Orden.id != excluded_order_id)
     return db.session.query(query.exists()).scalar()
@@ -1140,6 +1212,7 @@ def get_order(order_id):
     return (
         Orden.query.options(
             joinedload(Orden.mesa).joinedload(Mesa.zona),
+            selectinload(Orden.mesas_unidas).joinedload(OrdenMesa.mesa).joinedload(Mesa.zona),
             joinedload(Orden.usuario),
             joinedload(Orden.sesion_caja),
             selectinload(Orden.items).joinedload(OrdenItem.producto).joinedload(
@@ -1165,7 +1238,11 @@ def grouped_tables():
         .all()
     )
     active_orders = (
-        Orden.query.options(joinedload(Orden.mesa), selectinload(Orden.pagos))
+        Orden.query.options(
+            joinedload(Orden.mesa),
+            selectinload(Orden.mesas_unidas).joinedload(OrdenMesa.mesa),
+            selectinload(Orden.pagos),
+        )
         .filter_by(estado="abierta")
         .filter(Orden.mesa_id != current_app.config["TAKEOUT_TABLE_ID"])
         .order_by(Orden.created_at.desc())
@@ -1173,7 +1250,8 @@ def grouped_tables():
     )
     active_orders_by_table = {}
     for order in active_orders:
-        active_orders_by_table.setdefault(order.mesa_id, []).append(order)
+        for mesa in order.mesas_operativas:
+            active_orders_by_table.setdefault(mesa.id, []).append(order)
     return zonas, active_orders_by_table
 
 
@@ -1361,21 +1439,149 @@ def build_top_products(orders, limit=8):
     return rows[:limit], total_items, money(total_cost)
 
 
+def item_category_name(item):
+    if item.producto and item.producto.categoria:
+        return item.producto.categoria.nombre
+    return "Sin categoria"
+
+
+def item_product_name(item):
+    return item.producto.nombre if item.producto else "Producto eliminado"
+
+
+def build_sales_by_category(orders):
+    categories = {}
+    total_items = 0
+    food_items = 0
+    total_cost = ZERO
+
+    for order in orders:
+        if order.estado != "pagada":
+            continue
+
+        for item in order.items:
+            if item.estado == "cancelado":
+                continue
+
+            quantity = int(item.cantidad or 0)
+            subtotal = money(item.subtotal)
+            cost = money(as_decimal(item.costo_unitario) * quantity)
+            category_name = item_category_name(item)
+            product_name = item_product_name(item)
+
+            total_items += quantity
+            if item.requiere_cocina:
+                food_items += quantity
+            total_cost += cost
+
+            category = categories.setdefault(
+                category_name,
+                {"category": category_name, "quantity": 0, "sales": ZERO, "products": {}},
+            )
+            category["quantity"] += quantity
+            category["sales"] = money(category["sales"] + subtotal)
+
+            product = category["products"].setdefault(
+                product_name,
+                {"product": product_name, "quantity": 0, "sales": ZERO},
+            )
+            product["quantity"] += quantity
+            product["sales"] = money(product["sales"] + subtotal)
+
+    rows = []
+    for category in categories.values():
+        products = sorted(
+            category["products"].values(),
+            key=lambda item: (item["quantity"], item["sales"], item["product"]),
+            reverse=True,
+        )
+        rows.append({**category, "products": products})
+
+    rows.sort(key=lambda item: (item["sales"], item["quantity"], item["category"]), reverse=True)
+    return rows, total_items, food_items, money(total_cost)
+
+
+def build_cancelled_report(orders):
+    products = {}
+    cancelled_orders = []
+    total_quantity = 0
+    total_amount = ZERO
+
+    for order in orders:
+        order_cancelled = order.estado == "cancelada"
+        if order_cancelled:
+            cancelled_orders.append(order)
+
+        for item in order.items:
+            if not order_cancelled and item.estado != "cancelado":
+                continue
+
+            quantity = int(item.cantidad or 0)
+            subtotal = money(item.subtotal)
+            category_name = item_category_name(item)
+            product_name = item_product_name(item)
+            reason = (item.cancel_reason or "").strip() or "Sin motivo registrado"
+
+            total_quantity += quantity
+            total_amount = money(total_amount + subtotal)
+
+            key = (category_name, product_name)
+            product = products.setdefault(
+                key,
+                {
+                    "category": category_name,
+                    "product": product_name,
+                    "quantity": 0,
+                    "amount": ZERO,
+                    "reasons": {},
+                },
+            )
+            product["quantity"] += quantity
+            product["amount"] = money(product["amount"] + subtotal)
+            product["reasons"][reason] = product["reasons"].get(reason, 0) + quantity
+
+    for product in products.values():
+        reasons = sorted(
+            product["reasons"].items(),
+            key=lambda item: (item[1], item[0]),
+            reverse=True,
+        )
+        product["reasons_summary"] = ", ".join(
+            f"{reason} ({quantity})" if quantity > 1 else reason
+            for reason, quantity in reasons
+        )
+
+    product_rows = sorted(
+        products.values(),
+        key=lambda item: (item["quantity"], item["amount"], item["category"], item["product"]),
+        reverse=True,
+    )
+
+    return {
+        "orders": cancelled_orders,
+        "products": product_rows,
+        "quantity": total_quantity,
+        "amount": money(total_amount),
+    }
+
+
 def get_report_snapshot(start_date, end_date):
     orders = get_orders_for_range(start_date, end_date)
     payments = get_payments_for_range(start_date, end_date)
     inventory = get_inventory_for_range(start_date, end_date)
 
     sales_total = money(sum((as_decimal(payment.monto) for payment in payments), ZERO))
+    tips_total = money(sum((as_decimal(getattr(payment, "propina", ZERO)) for payment in payments), ZERO))
+    collected_total = money(sales_total + tips_total)
     cash_total = money(
         sum(
-            (as_decimal(payment.monto) for payment in payments if payment.metodo == "efectivo"),
+            (payment_collected_total(payment) for payment in payments if payment.metodo == "efectivo"),
             ZERO,
         )
     )
     card_total = money(
         sum(
-            (as_decimal(payment.monto) for payment in payments if payment.metodo == "tarjeta"),
+            (payment_collected_total(payment) for payment in payments if payment.metodo == "tarjeta"),
             ZERO,
         )
     )
@@ -1383,7 +1589,9 @@ def get_report_snapshot(start_date, end_date):
     paid_orders_count = sum(1 for order in orders if order.estado == "pagada")
     open_orders_count = sum(1 for order in orders if order.estado == "abierta")
     cancelled_orders_count = sum(1 for order in orders if order.estado == "cancelada")
-    top_products, items_sold, estimated_cost = build_top_products(orders)
+    top_products, _legacy_items_sold, _legacy_estimated_cost = build_top_products(orders)
+    sales_by_category, items_sold, food_items_sold, estimated_cost = build_sales_by_category(orders)
+    cancelled_report = build_cancelled_report(orders)
     gross_profit = money(sales_total - estimated_cost)
     average_ticket = (
         money(sales_total / paid_orders_count) if paid_orders_count else ZERO
@@ -1396,6 +1604,8 @@ def get_report_snapshot(start_date, end_date):
         "payments": payments,
         "inventory": inventory,
         "sales_total": sales_total,
+        "tips_total": tips_total,
+        "collected_total": collected_total,
         "cash_total": cash_total,
         "card_total": card_total,
         "estimated_cost": estimated_cost,
@@ -1405,6 +1615,9 @@ def get_report_snapshot(start_date, end_date):
         "open_orders_count": open_orders_count,
         "cancelled_orders_count": cancelled_orders_count,
         "items_sold": items_sold,
+        "food_items_sold": food_items_sold,
+        "sales_by_category": sales_by_category,
+        "cancelled_report": cancelled_report,
         "top_products": top_products,
         "low_stock_products": get_low_stock_products(limit=8),
     }
@@ -1499,7 +1712,7 @@ def serialize_kitchen_item(item):
     return {
         "id": item.id,
         "order_id": item.orden_id,
-        "table": item.orden.mesa.etiqueta if item.orden and item.orden.mesa else "-",
+        "table": item.orden.mesa_etiqueta if item.orden and item.orden.mesa else "-",
         "customer": item.orden.nombre_cliente if item.orden else None,
         "product": item.producto.nombre if item.producto else "-",
         "category": (
@@ -1552,7 +1765,7 @@ def session_cash_expected(session_open):
     for orden in session_open.ordenes:
         for pago in orden.pagos:
             if pago.metodo == "efectivo":
-                ventas_efectivo += money(pago.monto)
+                ventas_efectivo += payment_collected_total(pago)
 
     return money(apertura + ingresos + ventas_efectivo - egresos)
 
@@ -1565,7 +1778,7 @@ def session_card_total(session_open):
     for orden in session_open.ordenes:
         for pago in orden.pagos:
             if pago.metodo == "tarjeta":
-                total += money(pago.monto)
+                total += payment_collected_total(pago)
     return money(total)
 
 
@@ -1575,7 +1788,7 @@ def session_sales_total(session_open):
     total = ZERO
     for orden in session_open.ordenes:
         for pago in orden.pagos:
-            total += money(pago.monto)
+            total += payment_collected_total(pago)
     return money(total)
 
 
@@ -1588,6 +1801,61 @@ def calculate_order_total(order):
     return money(total)
 
 
+def ensure_order_table_link(order, mesa=None):
+    mesa = mesa or order.mesa
+    if not order or not mesa:
+        return None
+    for link in order.mesas_unidas:
+        if link.mesa_id == mesa.id:
+            return link
+    link = OrdenMesa(orden=order, mesa=mesa)
+    db.session.add(link)
+    return link
+
+
+def order_split_capacity(order):
+    return max(parse_int(order.capacidad_sillas, 0), 0)
+
+
+def table_group_id(mesa):
+    return mesa.grupo_mesa_id or mesa.id
+
+
+def grouped_tables_for_mesa(mesa):
+    if mesa is None:
+        return []
+
+    group_id = table_group_id(mesa)
+    return (
+        Mesa.query.options(joinedload(Mesa.zona))
+        .filter(db.or_(Mesa.id == group_id, Mesa.grupo_mesa_id == group_id))
+        .order_by(Mesa.numero.asc())
+        .all()
+    )
+
+
+def ensure_order_table_links_for_group(order, mesa=None):
+    mesa = mesa or order.mesa
+    linked = []
+    for table in grouped_tables_for_mesa(mesa):
+        linked.append(ensure_order_table_link(order, table))
+    return linked
+
+
+def sync_table_state(mesa, excluded_order_id=None, mark_dirty=False):
+    if is_takeout_table(mesa):
+        mesa.estado = "disponible"
+        return
+
+    if mesa_has_other_active_orders(mesa.id, excluded_order_id):
+        mesa.estado = "ocupada"
+        return
+
+    mesa.estado = "disponible"
+    if mark_dirty:
+        mesa.limpieza_estado = "sucia"
+
+
 def sync_order(order):
     normalize_item_delivery_states(order)
     order.total = calculate_order_total(order)
@@ -1596,21 +1864,19 @@ def sync_order(order):
         order.mesa.estado = "disponible"
         return
 
+    ensure_order_table_link(order)
+    mesas = order.mesas_operativas
     if order.estado in {"pagada", "cancelada"}:
-        if mesa_has_other_active_orders(order.mesa_id, order.id):
-            order.mesa.estado = "ocupada"
-        else:
-            order.mesa.estado = "disponible"
-        if order.items and order.mesa.estado != "ocupada":
-            order.mesa.limpieza_estado = "sucia"
+        for mesa in mesas:
+            sync_table_state(mesa, excluded_order_id=order.id, mark_dirty=bool(order.items))
         return
 
     if order.items_activos:
-        order.mesa.estado = "ocupada"
-    elif mesa_has_other_active_orders(order.mesa_id, order.id):
-        order.mesa.estado = "ocupada"
+        for mesa in mesas:
+            mesa.estado = "ocupada"
     else:
-        order.mesa.estado = "disponible"
+        for mesa in mesas:
+            sync_table_state(mesa, excluded_order_id=order.id)
 
 
 def clear_divisiones(order):
@@ -1649,35 +1915,44 @@ def settle_order(order):
 
     if order.total > ZERO and order.total_pagado >= order.total and order.todos_entregados:
         order.estado = "pagada"
-        if not is_takeout_table(order.mesa):
-            if mesa_has_other_active_orders(order.mesa_id, order.id):
-                order.mesa.estado = "ocupada"
-            else:
-                order.mesa.estado = "disponible"
-                order.mesa.limpieza_estado = "sucia"
-
-        for item in order.items:
-            if item.estado == "cancelado" or item.pagado:
-                continue
-
-            item.pagado = True
-
-            if item.producto and item.producto.controla_stock:
-                item.producto.stock_actual -= item.cantidad
-                movimiento = MovimientoInventario(
-                    producto_id=item.producto_id,
-                    tipo="venta",
-                    cantidad_paquetes=None,
-                    cantidad_unidades=item.cantidad,
-                    precio_unitario=item.costo_unitario or item.producto.precio_costo,
-                    notas=f"Venta de orden #{order.id}",
-                    usuario_id=order.usuario_id,
-                )
-                db.session.add(movimiento)
+        mark_order_items_paid(order)
+        sync_order(order)
+    elif order_should_auto_close_zero_balance(order):
+        order.estado = "pagada"
+        mark_order_items_paid(order)
+        sync_order(order)
     elif order.estado != "cancelada":
         order.estado = "abierta"
-        if order.items_activos and not is_takeout_table(order.mesa):
-            order.mesa.estado = "ocupada"
+        sync_order(order)
+
+
+def order_should_auto_close_zero_balance(order):
+    if order.estado == "cancelada" or order.saldo_pendiente > ZERO:
+        return False
+    if order.items_activos and not order.todos_entregados:
+        return False
+    return bool(order.pagos or any(division.pagada for division in order.divisiones))
+
+
+def mark_order_items_paid(order):
+    for item in order.items:
+        if item.estado == "cancelado" or item.pagado:
+            continue
+
+        item.pagado = True
+
+        if item.producto and item.producto.controla_stock:
+            item.producto.stock_actual -= item.cantidad
+            movimiento = MovimientoInventario(
+                producto_id=item.producto_id,
+                tipo="venta",
+                cantidad_paquetes=None,
+                cantidad_unidades=item.cantidad,
+                precio_unitario=item.costo_unitario or item.producto.precio_costo,
+                notas=f"Venta de orden #{order.id}",
+                usuario_id=order.usuario_id,
+            )
+            db.session.add(movimiento)
 
 
 def initial_item_status(producto):
@@ -1911,9 +2186,14 @@ def validate_group_split_assignment(order, people_count, form_data):
     errors = []
     labels = {}
     assignments = {}
+    split_capacity = order_split_capacity(order)
 
-    if people_count < 2 or people_count > 10:
-        return None, None, ["La cuenta solo puede dividirse entre 2 y 10 personas."]
+    if split_capacity < 2:
+        return None, None, ["Esta mesa no tiene suficientes sillas para dividir la cuenta."]
+    if people_count < 2 or people_count > split_capacity:
+        return None, None, [
+            f"La cuenta solo puede dividirse entre 2 y {split_capacity} personas segun las sillas de la mesa."
+        ]
 
     for person in range(1, people_count + 1):
         label = (form_data.get(f"label_{person}") or "").strip()
@@ -1996,9 +2276,14 @@ def validate_split_assignment(order, people_count, form_data):
     errors = []
     labels = {}
     assignments = {}
+    split_capacity = order_split_capacity(order)
 
-    if people_count < 2 or people_count > 10:
-        return None, None, ["La cuenta solo puede dividirse entre 2 y 10 personas."]
+    if split_capacity < 2:
+        return None, None, ["Esta mesa no tiene suficientes sillas para dividir la cuenta."]
+    if people_count < 2 or people_count > split_capacity:
+        return None, None, [
+            f"La cuenta solo puede dividirse entre 2 y {split_capacity} personas segun las sillas de la mesa."
+        ]
 
     for person in range(1, people_count + 1):
         label = (form_data.get(f"label_{person}") or "").strip()

@@ -65,6 +65,16 @@
                     <span>Total</span>
                     <strong>{{ (ticket_total if ticket_total is defined else order.total)|money }}</strong>
                 </div>
+                {% if ticket_payment.tip and ticket_payment.tip > 0 %}
+                    <div class="ticket-total-row">
+                        <span>Propina</span>
+                        <strong>{{ ticket_payment.tip|money }}</strong>
+                    </div>
+                    <div class="ticket-total-row ticket-grand-total">
+                        <span>Total cobrado</span>
+                        <strong>{{ ticket_payment.total_charged|money }}</strong>
+                    </div>
+                {% endif %}
                 <div class="ticket-total-row">
                     <span>Recibido</span>
                     <strong>{{ ticket_payment.received|money }}</strong>

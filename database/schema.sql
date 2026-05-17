@@ -53,9 +53,12 @@ CREATE TABLE mesas (
     id INT AUTO_INCREMENT PRIMARY KEY,
     numero INT NOT NULL,
     nombre_alias VARCHAR(50),
+    sillas INT NOT NULL DEFAULT 4,
+    grupo_mesa_id INT NULL,
     zona_id INT NOT NULL,
     estado ENUM('disponible', 'ocupada') DEFAULT 'disponible',
     limpieza_estado ENUM('limpia', 'sucia') DEFAULT 'limpia',
+    FOREIGN KEY (grupo_mesa_id) REFERENCES mesas(id),
     FOREIGN KEY (zona_id) REFERENCES zonas(id)
 );
 
@@ -130,6 +133,16 @@ CREATE TABLE ordenes (
     FOREIGN KEY (usuario_id) REFERENCES usuarios(id)
 );
 
+CREATE TABLE orden_mesas (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    orden_id INT NOT NULL,
+    mesa_id INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_orden_mesa (orden_id, mesa_id),
+    FOREIGN KEY (orden_id) REFERENCES ordenes(id),
+    FOREIGN KEY (mesa_id) REFERENCES mesas(id)
+);
+
 CREATE TABLE orden_items (
     id INT AUTO_INCREMENT PRIMARY KEY,
     orden_id INT NOT NULL,
@@ -138,6 +151,7 @@ CREATE TABLE orden_items (
     precio_unitario DECIMAL(10,2) NOT NULL,
     costo_unitario DECIMAL(10,2) DEFAULT 0,
     notas VARCHAR(200),
+    cancel_reason VARCHAR(255) NULL,
     estado ENUM('pendiente', 'listo', 'entregado', 'cancelado') DEFAULT 'pendiente',
     pagado BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -150,6 +164,7 @@ CREATE TABLE pagos (
     orden_id INT NOT NULL,
     metodo ENUM('efectivo', 'tarjeta') NOT NULL,
     monto DECIMAL(10,2) NOT NULL,
+    propina DECIMAL(10,2) NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (orden_id) REFERENCES ordenes(id)
 );

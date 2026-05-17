@@ -17,7 +17,7 @@
         {% if user_can(current_user, 'reportes') %}
             <div>
                 <a class="button button-secondary hover-lift shadow-sm" href="{{ url_for('web.reportes') }}">
-                    <i class="fa-solid fa-chart-column mr-2"></i> Ver reportes
+                    <i class="fa-solid fa-chart-column mr-2"></i> Ver reporte
                 </a>
             </div>
         {% endif %}
@@ -42,11 +42,11 @@
                 <div class="stat-icon bg-success-light text-success">
                     <i class="fa-solid fa-sack-dollar"></i>
                 </div>
-                <h3 class="stat-label text-muted">Ventas</h3>
+                <h3 class="stat-label text-muted">Cobrado</h3>
             </div>
             <div class="stat-value mt-3">{{ sales_total|money }}</div>
             <p class="stat-desc text-success mt-1 font-medium text-xs">
-                Total registrado en la sesión
+                Ventas y propinas de la sesión
             </p>
         </article>
 
@@ -101,8 +101,8 @@
                             <div>
                                 <label for="movement_type" class="block text-sm font-bold text-gray-800 mb-2">Tipo de movimiento</label>
                                 <select id="movement_type" name="movement_type">
-                                    <option value="ingreso">Ingreso</option>
                                     <option value="egreso">Egreso</option>
+                                    <option value="ingreso">Ingreso</option>
                                 </select>
                             </div>
 
@@ -233,8 +233,8 @@
 
                             <li class="list-item">
                                 <div>
-                                    <div class="text-sm font-bold">Ventas totales</div>
-                                    <div class="text-xs text-muted">Sesión actual</div>
+                                    <div class="text-sm font-bold">Total cobrado</div>
+                                    <div class="text-xs text-muted">Ventas y propinas de la sesión</div>
                                 </div>
                                 <div class="text-sm font-bold text-success">{{ sales_total|money }}</div>
                             </li>

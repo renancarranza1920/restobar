@@ -52,7 +52,7 @@
                 <h3 class="stat-label text-muted">Cuentas abiertas</h3>
             </div>
             <div class="stat-value mt-3">{{ table_summary.active_accounts }}</div>
-            <p class="stat-desc text-warning mt-1 font-medium text-xs">{{ table_summary.occupied }} mesa{{ '' if table_summary.occupied == 1 else 's' }} ocupada{{ '' if table_summary.occupied == 1 else 's' }}</p>
+            <p class="stat-desc text-warning mt-1 font-medium text-xs">{{ table_summary.occupied }} grupo{{ '' if table_summary.occupied == 1 else 's' }} ocupado{{ '' if table_summary.occupied == 1 else 's' }}</p>
         </button>
 
         <button class="stat-card panel hover-lift table-summary-card" type="button" data-table-modal-target="dirty" {% if table_summary.dirty == 0 %}disabled{% endif %}>
@@ -77,6 +77,49 @@
             <p class="stat-desc text-primary mt-1 font-medium text-xs">Grupos por ubicar</p>
         </button>
     </section>
+
+    {% if user_can(current_user, 'mesas.edit') %}
+        <section class="panel mb-4">
+            <div class="panel-header border-b bg-gray-50">
+                <div>
+                    <h2 class="panel-title font-bold"><i class="fa-solid fa-link mr-2 text-primary"></i> Unir mesas</h2>
+                    <p class="text-sm text-muted mt-1">Selecciona el grupo principal y la mesa limpia libre que se agregara.</p>
+                </div>
+            </div>
+            <div class="panel-body p-4">
+                {% if joinable_base_tables|length >= 2 and joinable_target_tables %}
+                    <form class="join-tables-panel-form" method="post" action="{{ url_for('web.unir_mesas') }}" data-join-tables-form data-confirm-title="Unir mesas" data-confirm-message="La mesa libre pasara a formar parte del grupo seleccionado.">
+                        <div>
+                            <label for="join_base_mesa_id" class="block text-sm font-bold text-gray-800 mb-2">Mesa o grupo principal</label>
+                            <select id="join_base_mesa_id" name="base_mesa_id" class="w-full rounded-md shadow-sm" required>
+                                {% for mesa in joinable_base_tables %}
+                                    {% set table_orders = active_orders.get(mesa.id, []) %}
+                                    <option value="{{ mesa.id }}" data-zone-id="{{ mesa.zona_id }}">
+                                        {{ mesa.group_label }} - {{ mesa.zona.nombre if mesa.zona else 'Sin zona' }} - {{ mesa.group_sillas }} silla{{ '' if mesa.group_sillas == 1 else 's' }}{% if table_orders %} - con cuenta{% endif %}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label for="join_mesa_id" class="block text-sm font-bold text-gray-800 mb-2">Mesa a unir</label>
+                            <select id="join_mesa_id" name="mesa_id" class="w-full rounded-md shadow-sm" required>
+                                {% for mesa in joinable_target_tables %}
+                                    <option value="{{ mesa.id }}" data-zone-id="{{ mesa.zona_id }}">
+                                        Mesa {{ mesa.numero }} · {{ mesa.zona.nombre if mesa.zona else 'Sin zona' }} · {{ mesa.sillas }} silla{{ '' if mesa.sillas == 1 else 's' }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <button class="button button-primary shadow-sm hover-lift" type="submit">
+                            <i class="fa-solid fa-link mr-2"></i> Unir mesas
+                        </button>
+                    </form>
+                {% else %}
+                    <p class="text-sm text-muted">Necesitas al menos una mesa o grupo principal y una mesa limpia libre para unir mesas.</p>
+                {% endif %}
+            </div>
+        </section>
+    {% endif %}
 
     <section class="panel table-view-toolbar mb-4">
         <div>
@@ -109,7 +152,7 @@
                 </div>
                 <div class="table-zone-badges">
                     <span class="badge badge-pagada">{{ zone_card.available }} libres</span>
-                    <span class="badge bg-white shadow-sm border border-gray-200 text-muted">{{ zone_card.total }} mesas</span>
+                    <span class="badge bg-white shadow-sm border border-gray-200 text-muted">{{ zone_card.total }} grupo{{ '' if zone_card.total == 1 else 's' }}</span>
                 </div>
             </div>
 
@@ -119,17 +162,21 @@
                         {% for mesa in zone_card.tables %}
                             {% set table_orders = active_orders.get(mesa.id, []) %}
                             {% set order = table_orders[0] if table_orders else none %}
+                            {% set mesa_label = mesa.group_label %}
+                            {% set mesa_sillas = mesa.group_sillas %}
+                            {% set mesa_limpieza = mesa.group_limpieza_estado %}
+                            {% set mesa_estado = mesa.group_estado %}
 
-                            <article class="panel hover-lift bg-white p-4 flex flex-col justify-between table-tile {{ 'table-tile-occupied' if table_orders else ('table-tile-dirty' if mesa.limpieza_estado == 'sucia' else 'table-tile-free') }}">
+                            <article class="panel hover-lift bg-white p-4 flex flex-col justify-between table-tile {{ 'table-tile-occupied' if table_orders else ('table-tile-dirty' if mesa_limpieza == 'sucia' else 'table-tile-free') }}">
                                 <div class="flex justify-between items-start mb-4 gap-3">
                                     <div>
-                                        <strong class="text-lg font-bold text-gray-800">{{ mesa.etiqueta }}</strong>
-                                        <div class="text-xs text-muted">#{{ mesa.numero }} · {{ mesa.zona.nombre if mesa.zona else 'Sin zona' }}</div>
+                                        <strong class="text-lg font-bold text-gray-800">{{ mesa_label }}</strong>
+                                        <div class="text-xs text-muted">{{ mesa.group_detail }}</div>
                                     </div>
                                     <div class="table-badges">
-                                        <span class="badge badge-{{ mesa.estado|lower }} shadow-sm">{{ mesa.estado }}</span>
-                                        <span class="badge {{ 'badge-clean' if mesa.limpieza_estado == 'limpia' else 'badge-dirty' }}">
-                                            {{ mesa.limpieza_estado }}
+                                        <span class="badge badge-{{ mesa_estado|lower }} shadow-sm">{{ mesa_estado }}</span>
+                                        <span class="badge {{ 'badge-clean' if mesa_limpieza == 'limpia' else 'badge-dirty' }}">
+                                            {{ mesa_limpieza }}
                                         </span>
                                     </div>
                                 </div>
@@ -150,13 +197,13 @@
                                                 <div class="text-xs text-muted px-2">+{{ table_orders|length - 3 }} cuenta{{ '' if table_orders|length - 3 == 1 else 's' }} mas</div>
                                             {% endif %}
                                         </div>
-                                    {% elif mesa.limpieza_estado == 'sucia' %}
+                                    {% elif mesa_limpieza == 'sucia' %}
                                         <div class="inline-alert inline-alert-warning">
                                             <i class="fa-solid fa-broom-ball mr-2"></i> Pendiente de limpieza antes de abrir otra orden.
                                         </div>
                                     {% else %}
                                         <div class="text-xs text-muted flex items-center gap-2 opacity-70 pt-2">
-                                            <i class="fa-solid fa-circle-check text-success"></i> Mesa disponible sin cuenta
+                                            <i class="fa-solid fa-circle-check text-success"></i> Disponible sin cuenta · {{ mesa_sillas }} silla{{ '' if mesa_sillas == 1 else 's' }}
                                         </div>
                                     {% endif %}
                                 </div>
@@ -172,10 +219,10 @@
                                                 action="{{ url_for('web.crear_orden') }}"
                                                 class="flex-1"
                                                 data-confirm-title="Abrir otra cuenta"
-                                                data-confirm-message="{{ mesa.etiqueta }} ya tiene {{ table_orders|length }} cuenta{{ '' if table_orders|length == 1 else 's' }} activa{{ '' if table_orders|length == 1 else 's' }}. ¿Seguro que deseas abrir una cuenta separada?"
+                                                data-confirm-message="{{ mesa_label }} ya tiene {{ table_orders|length }} cuenta{{ '' if table_orders|length == 1 else 's' }} activa{{ '' if table_orders|length == 1 else 's' }}. ¿Seguro que deseas abrir una cuenta separada?"
                                             >
                                                 <input type="hidden" name="mesa_id" value="{{ mesa.id }}">
-                                                <button class="button button-primary button-small w-full" type="submit" {% if not cash_session or mesa.limpieza_estado != 'limpia' %}disabled{% endif %}>
+                                                <button class="button button-primary button-small w-full" type="submit" {% if not cash_session or mesa_limpieza != 'limpia' %}disabled{% endif %}>
                                                     <i class="fa-solid fa-user-plus mr-1"></i> Otra cuenta
                                                 </button>
                                             </form>
@@ -184,19 +231,27 @@
                                         {% if user_can(current_user, 'ordenes') %}
                                             <form method="post" action="{{ url_for('web.crear_orden') }}" class="flex-1">
                                                 <input type="hidden" name="mesa_id" value="{{ mesa.id }}">
-                                                <button class="button button-primary button-small w-full" type="submit" {% if not cash_session or mesa.limpieza_estado != 'limpia' %}disabled{% endif %}>
+                                                <button class="button button-primary button-small w-full" type="submit" {% if not cash_session or mesa_limpieza != 'limpia' %}disabled{% endif %}>
                                                     <i class="fa-solid fa-plus mr-1"></i> Abrir
                                                 </button>
                                             </form>
                                         {% endif %}
                                     {% endif %}
 
-                                    {% if user_can(current_user, 'mesas') and mesa.estado != 'ocupada' %}
+                                    {% if user_can(current_user, 'mesas.edit') and mesa.group_is_joined and not table_orders %}
+                                        <form method="post" action="{{ url_for('web.separar_mesas', mesa_id=mesa.id) }}" data-confirm-title="Separar mesas" data-confirm-message="Se volveran a mostrar como mesas independientes.">
+                                            <button class="button button-ghost button-small px-3 border-gray-200" type="submit" title="Separar mesas">
+                                                <i class="fa-solid fa-link-slash mr-1"></i> Separar
+                                            </button>
+                                        </form>
+                                    {% endif %}
+
+                                    {% if user_can(current_user, 'mesas') and mesa_estado != 'ocupada' %}
                                         <form method="post" action="{{ url_for('web.actualizar_limpieza_mesa', mesa_id=mesa.id) }}">
-                                            <input type="hidden" name="limpieza_estado" value="{{ 'limpia' if mesa.limpieza_estado == 'sucia' else 'sucia' }}">
-                                            <button class="button {{ 'button-success' if mesa.limpieza_estado == 'sucia' else 'button-warning' }} button-small" type="submit">
-                                                <i class="fa-solid {{ 'fa-broom' if mesa.limpieza_estado == 'sucia' else 'fa-soap' }} mr-1"></i>
-                                                {{ 'Marcar limpia' if mesa.limpieza_estado == 'sucia' else 'Marcar sucia' }}
+                                            <input type="hidden" name="limpieza_estado" value="{{ 'limpia' if mesa_limpieza == 'sucia' else 'sucia' }}">
+                                            <button class="button {{ 'button-success' if mesa_limpieza == 'sucia' else 'button-warning' }} button-small" type="submit">
+                                                <i class="fa-solid {{ 'fa-broom' if mesa_limpieza == 'sucia' else 'fa-soap' }} mr-1"></i>
+                                                {{ 'Marcar limpia' if mesa_limpieza == 'sucia' else 'Marcar sucia' }}
                                             </button>
                                         </form>
                                     {% endif %}
@@ -206,7 +261,7 @@
                                             <i class="fa-solid fa-pen"></i>
                                         </a>
                                         <form method="post" action="{{ url_for('web.eliminar_mesa', mesa_id=mesa.id) }}">
-                                            <button class="button button-ghost button-small px-3 text-danger border-danger" type="submit" title="Eliminar mesa" data-confirm-title="Eliminar mesa" data-confirm-message="Se intentará eliminar {{ mesa.etiqueta }}. Solo se puede si no tiene órdenes registradas.">
+                                            <button class="button button-ghost button-small px-3 text-danger border-danger" type="submit" title="Eliminar mesa" data-confirm-title="Eliminar mesa" data-confirm-message="Se intentará eliminar {{ mesa_label }}. Solo se puede si no tiene órdenes registradas.">
                                                 <i class="fa-solid fa-trash"></i>
                                             </button>
                                         </form>
@@ -235,7 +290,7 @@
                     <div class="table-map-zone-head">
                         <div>
                             <h3>{{ zone_card.zona.nombre }}</h3>
-                            <p>{{ zone_card.available }} libre{{ '' if zone_card.available == 1 else 's' }} / {{ zone_card.total }} mesa{{ '' if zone_card.total == 1 else 's' }}</p>
+                            <p>{{ zone_card.available }} libre{{ '' if zone_card.available == 1 else 's' }} / {{ zone_card.total }} grupo{{ '' if zone_card.total == 1 else 's' }}</p>
                         </div>
                         <span class="badge badge-pagada">{{ zone_card.available }} disponibles</span>
                     </div>
@@ -244,21 +299,21 @@
                             {% for mesa in zone_card.tables %}
                                 {% set table_orders = active_orders.get(mesa.id, []) %}
                                 {% set latest_order = table_orders[0] if table_orders else none %}
-                                <article class="table-map-node {{ 'is-occupied' if table_orders else ('is-dirty' if mesa.limpieza_estado == 'sucia' else 'is-free') }}">
+                                <article class="table-map-node {{ 'is-occupied' if table_orders else ('is-dirty' if mesa.group_limpieza_estado == 'sucia' else 'is-free') }}">
                                     <div class="table-map-node-top">
-                                        <strong>{{ mesa.etiqueta }}</strong>
-                                        <span>#{{ mesa.numero }}</span>
+                                        <strong>{{ mesa.group_label }}</strong>
+                                        <span>{{ mesa.group_sillas }} silla{{ '' if mesa.group_sillas == 1 else 's' }}</span>
                                     </div>
                                     <div class="table-map-shape">
                                         <span class="table-map-center">
-                                            <i class="fa-solid {{ 'fa-receipt' if table_orders else ('fa-broom' if mesa.limpieza_estado == 'sucia' else 'fa-check') }}"></i>
+                                            <i class="fa-solid {{ 'fa-receipt' if table_orders else ('fa-broom' if mesa.group_limpieza_estado == 'sucia' else 'fa-check') }}"></i>
                                         </span>
                                     </div>
                                     <div class="table-map-node-meta">
                                         {% if table_orders %}
                                             <span>{{ table_orders|length }} cuenta{{ '' if table_orders|length == 1 else 's' }}</span>
                                             <strong>{{ latest_order.nombre_cliente or 'Sin referencia' }}</strong>
-                                        {% elif mesa.limpieza_estado == 'sucia' %}
+                                        {% elif mesa.group_limpieza_estado == 'sucia' %}
                                             <span>Pendiente de limpieza</span>
                                             <strong>No abrir aun</strong>
                                         {% else %}
@@ -276,11 +331,11 @@
                                                 action="{{ url_for('web.crear_orden') }}"
                                                 {% if table_orders %}
                                                     data-confirm-title="Abrir otra cuenta"
-                                                    data-confirm-message="{{ mesa.etiqueta }} ya tiene {{ table_orders|length }} cuenta{{ '' if table_orders|length == 1 else 's' }} activa{{ '' if table_orders|length == 1 else 's' }}. Seguro que deseas abrir una cuenta separada?"
+                                                    data-confirm-message="{{ mesa.group_label }} ya tiene {{ table_orders|length }} cuenta{{ '' if table_orders|length == 1 else 's' }} activa{{ '' if table_orders|length == 1 else 's' }}. Seguro que deseas abrir una cuenta separada?"
                                                 {% endif %}
                                             >
                                                 <input type="hidden" name="mesa_id" value="{{ mesa.id }}">
-                                                <button class="button button-primary button-small" type="submit" {% if not cash_session or mesa.limpieza_estado != 'limpia' %}disabled{% endif %}>
+                                                <button class="button button-primary button-small" type="submit" {% if not cash_session or mesa.group_limpieza_estado != 'limpia' %}disabled{% endif %}>
                                                     {{ 'Otra cuenta' if table_orders else 'Abrir' }}
                                                 </button>
                                             </form>
@@ -422,13 +477,13 @@
                                         </div>
                                         <div class="table-map-grid waitlist-seat-grid">
                                             {% for mesa in zone_card.tables %}
-                                                {% if not active_orders.get(mesa.id) and mesa.limpieza_estado == 'limpia' %}
+                                                {% if not active_orders.get(mesa.id) and mesa.group_limpieza_estado == 'limpia' %}
                                                     <form class="waitlist-seat-map-form" method="post" action="{{ url_for('web.sentar_lista_espera', entry_id=entry.id) }}">
                                                         <input type="hidden" name="mesa_id" value="{{ mesa.id }}">
                                                         <button class="table-map-node is-free waitlist-seat-node" type="submit">
                                                             <span class="table-map-node-top">
-                                                                <strong>{{ mesa.etiqueta }}</strong>
-                                                                <span>#{{ mesa.numero }}</span>
+                                                                <strong>{{ mesa.group_label }}</strong>
+                                                                <span>{{ mesa.group_sillas }} silla{{ '' if mesa.group_sillas == 1 else 's' }}</span>
                                                             </span>
                                                             <span class="table-map-shape">
                                                                 <span class="table-map-center">
@@ -437,7 +492,7 @@
                                                             </span>
                                                             <span class="table-map-node-meta">
                                                                 <span>{{ mesa.zona.nombre if mesa.zona else 'Sin zona' }}</span>
-                                                                <strong>Sentar aqui</strong>
+                                                                <strong>Sentar aqui · {{ mesa.group_sillas }} silla{{ '' if mesa.group_sillas == 1 else 's' }}</strong>
                                                             </span>
                                                         </button>
                                                     </form>
@@ -477,12 +532,12 @@
                     <div class="grid-mesas table-modal-grid">
                         {% for zone_card in zone_cards %}
                             {% for mesa in zone_card.tables %}
-                                {% if not active_orders.get(mesa.id) and mesa.limpieza_estado == 'limpia' %}
+                                {% if not active_orders.get(mesa.id) and mesa.group_limpieza_estado == 'limpia' %}
                                     <article class="panel table-tile table-tile-free table-modal-tile">
                                         <div class="flex justify-between items-start gap-3">
                                             <div>
-                                                <strong class="text-lg font-bold text-gray-800">{{ mesa.etiqueta }}</strong>
-                                                <div class="text-xs text-muted">#{{ mesa.numero }} · {{ mesa.zona.nombre if mesa.zona else 'Sin zona' }}</div>
+                                                <strong class="text-lg font-bold text-gray-800">{{ mesa.group_label }}</strong>
+                                                <div class="text-xs text-muted">{{ mesa.group_detail }}</div>
                                             </div>
                                             <span class="badge badge-pagada">Libre</span>
                                         </div>
@@ -543,11 +598,11 @@
                                     <div class="panel-body">
                                         <div class="grid-mesas table-modal-grid">
                                             {% for mesa in zone_card.tables %}
-                                                {% if not active_orders.get(mesa.id) and mesa.limpieza_estado == 'limpia' %}
+                                                {% if not active_orders.get(mesa.id) and mesa.group_limpieza_estado == 'limpia' %}
                                                     <article class="table-mini-card table-tile-free">
                                                         <div>
-                                                            <strong>{{ mesa.etiqueta }}</strong>
-                                                            <span>#{{ mesa.numero }}</span>
+                                                            <strong>{{ mesa.group_label }}</strong>
+                                                            <span>{{ mesa.group_sillas }} silla{{ '' if mesa.group_sillas == 1 else 's' }}</span>
                                                         </div>
                                                         {% if user_can(current_user, 'ordenes') %}
                                                             <form method="post" action="{{ url_for('web.crear_orden') }}">
@@ -597,8 +652,8 @@
                                     <article class="panel table-tile table-tile-occupied table-modal-tile">
                                         <div class="flex justify-between items-start gap-3">
                                             <div>
-                                                <strong class="text-lg font-bold text-gray-800">{{ mesa.etiqueta }}</strong>
-                                                <div class="text-xs text-muted">{{ mesa.zona.nombre if mesa.zona else 'Sin zona' }} · {{ table_orders|length }} cuenta{{ '' if table_orders|length == 1 else 's' }}</div>
+                                                <strong class="text-lg font-bold text-gray-800">{{ mesa.group_label }}</strong>
+                                                <div class="text-xs text-muted">{{ mesa.group_detail }} · {{ table_orders|length }} cuenta{{ '' if table_orders|length == 1 else 's' }}</div>
                                             </div>
                                             <span class="badge badge-abierta">Ocupada</span>
                                         </div>
@@ -623,10 +678,10 @@
                                                     action="{{ url_for('web.crear_orden') }}"
                                                     class="flex-1"
                                                     data-confirm-title="Abrir otra cuenta"
-                                                    data-confirm-message="{{ mesa.etiqueta }} ya tiene {{ table_orders|length }} cuenta{{ '' if table_orders|length == 1 else 's' }} activa{{ '' if table_orders|length == 1 else 's' }}. ¿Seguro que deseas abrir una cuenta separada?"
+                                                    data-confirm-message="{{ mesa.group_label }} ya tiene {{ table_orders|length }} cuenta{{ '' if table_orders|length == 1 else 's' }} activa{{ '' if table_orders|length == 1 else 's' }}. ¿Seguro que deseas abrir una cuenta separada?"
                                                 >
                                                     <input type="hidden" name="mesa_id" value="{{ mesa.id }}">
-                                                    <button class="button button-primary button-small w-full" type="submit" {% if not cash_session or mesa.limpieza_estado != 'limpia' %}disabled{% endif %}>
+                                                    <button class="button button-primary button-small w-full" type="submit" {% if not cash_session or mesa.group_limpieza_estado != 'limpia' %}disabled{% endif %}>
                                                         Otra cuenta
                                                     </button>
                                                 </form>
@@ -674,13 +729,13 @@
                         <div class="grid-mesas table-modal-grid">
                             {% for zone_card in zone_cards %}
                                 {% for mesa in zone_card.tables %}
-                                    {% if not active_orders.get(mesa.id) and mesa.limpieza_estado == 'sucia' %}
+                                    {% if not active_orders.get(mesa.id) and mesa.group_limpieza_estado == 'sucia' %}
                                         <label class="panel table-tile table-tile-dirty table-modal-tile dirty-select-card">
                                             <input type="checkbox" name="mesa_ids" value="{{ mesa.id }}" data-dirty-table-checkbox>
                                             <span class="dirty-check-icon"><i class="fa-solid fa-check"></i></span>
                                             <span class="dirty-select-copy">
-                                                <strong class="text-lg font-bold text-gray-800">{{ mesa.etiqueta }}</strong>
-                                                <span class="text-xs text-muted">#{{ mesa.numero }} · {{ mesa.zona.nombre if mesa.zona else 'Sin zona' }}</span>
+                                                <strong class="text-lg font-bold text-gray-800">{{ mesa.group_label }}</strong>
+                                                <span class="text-xs text-muted">{{ mesa.group_detail }}</span>
                                                 <span class="inline-alert inline-alert-warning">
                                                     <i class="fa-solid fa-broom-ball mr-2"></i> Pendiente de limpieza
                                                 </span>
@@ -748,6 +803,43 @@
                 setTableView(window.localStorage.getItem(tableViewKey) || "grid");
             } catch (error) {
                 setTableView("grid");
+            }
+
+            const joinTablesForm = document.querySelector("[data-join-tables-form]");
+            if (joinTablesForm) {
+                const baseSelect = joinTablesForm.querySelector("[name='base_mesa_id']");
+                const targetSelect = joinTablesForm.querySelector("[name='mesa_id']");
+                const submitButton = joinTablesForm.querySelector("button[type='submit']");
+                const targetOptions = Array.from(targetSelect?.options || []);
+
+                function syncJoinTargets() {
+                    if (!baseSelect || !targetSelect) {
+                        return;
+                    }
+                    const selectedBase = baseSelect.selectedOptions[0];
+                    const zoneId = selectedBase?.dataset.zoneId || "";
+                    const baseId = baseSelect.value;
+                    let firstVisible = null;
+
+                    targetOptions.forEach((option) => {
+                        const visible = option.value !== baseId && option.dataset.zoneId === zoneId;
+                        option.hidden = !visible;
+                        option.disabled = !visible;
+                        if (visible && !firstVisible) {
+                            firstVisible = option;
+                        }
+                    });
+
+                    if (!targetSelect.selectedOptions[0] || targetSelect.selectedOptions[0].disabled) {
+                        targetSelect.value = firstVisible ? firstVisible.value : "";
+                    }
+                    if (submitButton) {
+                        submitButton.disabled = !firstVisible;
+                    }
+                }
+
+                baseSelect?.addEventListener("change", syncJoinTargets);
+                syncJoinTargets();
             }
 
             function closeModal(modal) {

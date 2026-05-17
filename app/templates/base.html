@@ -180,6 +180,10 @@
                 <span>Cantidad a cancelar</span>
                 <input data-confirm-quantity type="number" min="1" step="1" inputmode="numeric">
             </label>
+            <label class="confirm-reason-field" data-confirm-reason-wrap hidden>
+                <span data-confirm-reason-label>Motivo</span>
+                <textarea data-confirm-reason rows="3" maxlength="255" placeholder="Ej: producto vencido, defectuoso, salio mal o el cliente lo cancelo"></textarea>
+            </label>
             <div class="confirm-dialog-actions">
                 <button class="button button-ghost" type="button" data-confirm-cancel>Cancelar</button>
                 <button class="button button-danger" type="button" data-confirm-accept>Aceptar</button>
@@ -204,6 +208,24 @@
                 <strong data-payment-amount>$0.00</strong>
             </div>
 
+            <div class="payment-tip-box">
+                <div class="payment-tip-header">
+                    <span>Propina opcional</span>
+                    <strong data-payment-tip>$0.00</strong>
+                </div>
+                <div class="payment-tip-options" role="group" aria-label="Propina opcional">
+                    <button class="payment-tip-button is-active" type="button" data-payment-tip-button="0" aria-pressed="true">Sin propina</button>
+                    <button class="payment-tip-button" type="button" data-payment-tip-button="5" aria-pressed="false">5%</button>
+                    <button class="payment-tip-button" type="button" data-payment-tip-button="10" aria-pressed="false">10%</button>
+                    <button class="payment-tip-button" type="button" data-payment-tip-button="15" aria-pressed="false">15%</button>
+                </div>
+            </div>
+
+            <div class="payment-summary payment-total-summary">
+                <span>Total a cobrar</span>
+                <strong data-payment-total>$0.00</strong>
+            </div>
+
             <label class="payment-received-field" data-payment-received-wrap>
                 <span>Recibido en efectivo</span>
                 <input data-payment-received type="number" min="0" step="0.01" inputmode="decimal" autocomplete="off">
@@ -225,7 +247,7 @@
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='app.js', v='preferences-module') }}"></script>
+    <script src="{{ url_for('static', filename='app.js', v='payment-tips') }}"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

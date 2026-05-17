@@ -110,7 +110,7 @@
                                         <strong class="kitchen-ticket-title">{{ item.producto.nombre if item.producto else '-' }}</strong>
                                         <div class="kitchen-ticket-tags">
                                             <span class="kitchen-ticket-tag">Orden #{{ item.orden.id if item.orden else '-' }}</span>
-                                            <span class="kitchen-ticket-tag">{{ item.orden.mesa.etiqueta if item.orden and item.orden.mesa else '-' }}</span>
+                                            <span class="kitchen-ticket-tag">{{ item.orden.mesa_etiqueta if item.orden and item.orden.mesa else '-' }}</span>
                                             <span class="kitchen-ticket-tag">{{ item.producto.categoria.nombre if item.producto and item.producto.categoria else 'General' }}</span>
                                         </div>
                                     </div>
@@ -125,7 +125,7 @@
                             <div class="kitchen-ticket-grid">
                                 <div class="kitchen-ticket-block">
                                     <span class="kitchen-ticket-label">Mesa</span>
-                                    <strong>{{ item.orden.mesa.etiqueta if item.orden and item.orden.mesa else '-' }}</strong>
+                                    <strong>{{ item.orden.mesa_etiqueta if item.orden and item.orden.mesa else '-' }}</strong>
                                 </div>
 
                                 {% if item.orden and item.orden.nombre_cliente %}

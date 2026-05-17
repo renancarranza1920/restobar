@@ -13,7 +13,7 @@
 
         <div class="page-actions">
             <a class="button button-secondary hover-lift shadow-sm" href="{{ url_for('web.exportar_reporte', kind='productos') }}">
-                <i class="fa-solid fa-file-csv mr-2"></i> CSV
+                <i class="fa-solid fa-file-pdf mr-2"></i> PDF
             </a>
             {% if user_can(current_user, 'categorias') %}
                 <a class="button button-ghost hover-lift shadow-sm border-gray-200" href="{{ url_for('web.categorias') }}">
