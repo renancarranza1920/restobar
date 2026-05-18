@@ -45,6 +45,8 @@ def create_app():
     app.register_blueprint(api_bp)
 
     with app.app_context():
+        db.create_all()
+        
         bootstrap_security_schema()
         bootstrap_system_preferences()
         bootstrap_waitlist_schema()
